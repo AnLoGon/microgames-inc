@@ -1,18 +1,12 @@
 # Microgames Inc.
 
-Homenaje a **WarioWare: Do It Yourself** (Nintendo DS): un editor visual de microjuegos de 4 segundos, 8 segundos o infinitos, más una colección de ejemplos jugables. Todo funciona en el navegador, sin servidor y sin instalar nada.
+Homenaje a **WarioWare: Do It Yourself** (Nintendo DS, Wii): un editor visual de microjuegos de 4 segundos, 8 segundos o infinitos, más una colección de ejemplos jugables. Todo funciona en el navegador, sin servidor y sin instalar nada.
 
 El escenario interno es de **1280×720 píxeles** y se muestra siempre con proporción 16:9, sin deformar los sprites.
 
 ## Cómo ejecutarlo
 
-Abre `index.html` con doble clic (funciona desde `file://`) o sirve la carpeta con cualquier servidor estático:
-
-```bash
-python -m http.server 8765 --bind 127.0.0.1
-```
-
-y visita <http://127.0.0.1:8765/index.html>.
+Abre `index.html` con doble clic (funciona desde `file://`).
 
 No hay backend, ni build, ni dependencias: HTML, CSS y JavaScript clásicos.
 
@@ -89,4 +83,3 @@ js/app.js         Navegación, galería, borradores, ayuda y ajustes
 - Los microjuegos se guardan en el navegador (`localStorage`), no en la nube. Exporta un `.json` si quieres conservarlos o compartirlos.
 - El estado de los interruptores solo existe durante la partida: al empezar, todos están apagados.
 - Los ejemplos siempre están disponibles; al editarlos se abre una copia sin guardar.
-- Los microjuegos antiguos creados en 320×240 se adaptan automáticamente a 1280×720 al cargarlos.
