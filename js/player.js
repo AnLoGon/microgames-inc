@@ -34,6 +34,7 @@
     hide(node('player-intro'));
     hide(node('player-result'));
     hide(node('player-pause-overlay'));
+    hide(node('preview-hud'));
   }
 
   function fmtSpeed(v) {
@@ -52,6 +53,18 @@
 
   function goalText(game) {
     switch (game.goal && game.goal.type) {
+      case 'switches': {
+        const groups = (game.goal.groups || []).filter(g => Array.isArray(g) && g.length);
+        if (!groups.length) return 'Sobrevive hasta el final';
+        const nameOf = id => {
+          const o = (game.objects || []).find(x => x.id === id);
+          return o ? o.name : 'un objeto';
+        };
+        if (groups.length === 1 && groups[0].length === 1) {
+          return 'Activa el interruptor de ' + nameOf(groups[0][0]);
+        }
+        return groups.length > 1 ? 'Enciende los interruptores (una de varias combinaciones)' : 'Enciende todos los interruptores';
+      }
       case 'switch': return 'Activa el interruptor';
       case 'touch': return 'Toca el objetivo';
       case 'reach': return 'Lleva el objeto a la zona';
@@ -107,9 +120,10 @@
       introTimer: null,
       autoTimer: null,
       lastTs: 0,
-      speed: marathon ? marathonSpeed(marathon.round || 1) : 1,
+      speed: marathon ? marathonSpeed(marathon.round || 1) : (opts.speed || 1),
       attempt: 1,
-      result: null
+      result: null,
+      hudSig: ''
     };
 
     MI.audio.unlock();
@@ -188,7 +202,7 @@
     }
 
     if (speedBadge) {
-      const showSpeed = S.speed > 1.001;
+      const showSpeed = Math.abs(S.speed - 1) > 0.001;
       speedBadge.classList.toggle('hidden', !showSpeed);
       speedBadge.textContent = fmtSpeed(S.speed);
     }
@@ -197,7 +211,8 @@
       if (S.marathon) {
         mode.textContent = 'Velocidad ' + fmtSpeed(S.speed) + ' · sube cada 5 microjuegos';
       } else if (S.opts.mode === 'preview') {
-        mode.textContent = 'Vista previa desde el editor';
+        mode.textContent = 'Prueba · ' + fmtSpeed(S.speed) +
+          (S.opts.showSwitches ? ' · interruptores en vivo' : '');
       } else {
         mode.textContent = durationText(S.game.duration) + ' · ' + goalText(S.game);
       }
@@ -209,13 +224,72 @@
           S.marathon.wins + (S.marathon.wins === 1 ? ' acierto' : ' aciertos') +
           ' · ' + fmtSpeed(S.speed);
       } else if (S.opts.mode === 'preview') {
-        footer.textContent = 'Prueba · el borrador no se modifica';
+        footer.textContent = 'Prueba · velocidad ' + fmtSpeed(S.speed) + ' · el borrador no se modifica';
       } else {
         footer.textContent = S.game.example ? 'Microjuego de ejemplo' : 'Microjuego de la biblioteca';
       }
     }
 
     renderLivesBadge();
+    updatePreviewHud();
+  }
+
+  function setPreviewSpeed(v) {
+    if (!S) return;
+    const next = [0.5, 1, 2, 3].indexOf(Number(v)) >= 0 ? Number(v) : 1;
+    if (S.speed === next) return;
+    S.speed = next;
+    if (S.engine) S.engine.speed = next;
+    MI.audio.setSpeed(next);
+    S.hudSig = '';
+    updateHeader();
+    updatePreviewHud();
+  }
+
+  function updatePreviewHud() {
+    const hud = node('preview-hud');
+    if (!hud) return;
+    const active = S && S.opts.showSwitches && S.engine && S.phase !== 'intro' && S.phase !== 'result';
+    if (!active) { hide(hud); return; }
+
+    const objects = S.engine.objects || [];
+    const sig = objects.map(o => o.id + ':' + (o.switch ? 1 : 0) + ':' + (o.visible === false ? 1 : 0)).join('|') +
+      '|' + S.speed + '|' + (S.phase === 'paused' ? 'p' : 'r');
+    if (S.hudSig === sig && !hud.classList.contains('hidden')) return;
+    S.hudSig = sig;
+
+    hud.innerHTML = '';
+    const head = MI.el('div', { class: 'preview-hud-head' }, [
+      MI.el('span', { class: 'preview-hud-title', text: 'Interruptores' }),
+      MI.el('span', { class: 'preview-hud-note', text: S.phase === 'paused' ? 'en pausa' : 'en vivo' })
+    ]);
+    hud.appendChild(head);
+
+    const list = MI.el('div', { class: 'preview-hud-list' });
+    if (!objects.length) {
+      list.appendChild(MI.el('span', { class: 'preview-hud-empty', text: 'Sin objetos' }));
+    }
+    objects.forEach(o => {
+      const row = MI.el('div', { class: 'preview-hud-row' + (o.visible === false ? ' is-hidden' : '') });
+      row.appendChild(MI.el('span', { class: 'preview-hud-led' + (o.switch ? ' on' : '') }));
+      row.appendChild(MI.el('span', { class: 'preview-hud-name', text: o.name }));
+      if (o.visible === false) row.appendChild(MI.el('span', { class: 'preview-hud-tag', text: 'invisible' }));
+      row.appendChild(MI.el('span', { class: 'preview-hud-state' + (o.switch ? ' on' : ''), text: o.switch ? 'ON' : 'OFF' }));
+      list.appendChild(row);
+    });
+    hud.appendChild(list);
+
+    const speed = MI.el('div', { class: 'preview-hud-speed' });
+    speed.appendChild(MI.el('span', { class: 'preview-hud-label', text: 'Velocidad' }));
+    [0.5, 1, 2, 3].forEach(v => {
+      speed.appendChild(MI.el('button', {
+        class: 'preview-speed-btn' + (Math.abs(S.speed - v) < 0.001 ? ' active' : ''),
+        type: 'button', text: fmtSpeed(v),
+        onclick: () => setPreviewSpeed(v)
+      }));
+    });
+    hud.appendChild(speed);
+    show(hud);
   }
 
   function updateTimer() {
@@ -334,6 +408,7 @@
     const ctx = canvas.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     S.engine.render(ctx);
+    updatePreviewHud();
   }
 
   function onEngineFinish(result) {

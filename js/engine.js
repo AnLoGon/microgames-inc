@@ -51,11 +51,13 @@
           vx: 0, vy: 0, motion: null,
           switch: false, turnedOn: false, turnedOff: false,
           visible: o.visible !== false,
-          frame: 0, animTime: 0, animating: true, lastLoop: false, frameChanged: false,
+          anim: 0, frame: 0, animTime: 0, animating: true, lastLoop: false, frameChanged: false,
           alpha: 1, flashSwitch: 0
         };
       });
       this.zones = (this.def.zones || []).slice();
+      this.stageTexts = (this.def.texts || []).map(t => Object.assign({}, t));
+      this.dynamicTexts = [];
     }
 
     getObject(id) {
@@ -102,6 +104,13 @@
 
       if (!frozen) {
         for (const o of this.objects) this.updateObject(o, dt);
+        for (let i = this.dynamicTexts.length - 1; i >= 0; i--) {
+          const tx = this.dynamicTexts[i];
+          if (tx.life > 0) {
+            tx.life -= dt;
+            if (tx.life <= 0) this.dynamicTexts.splice(i, 1);
+          }
+        }
       }
       this.updateEffects(dt);
 
@@ -117,15 +126,18 @@
 
     updateObject(o, dt) {
       if (!o.visible) return;
-      // animación
+      // animación de la animación activa (0-3)
       const def = o.def;
-      const frameMs = 1000 / Math.max(1, def.fps || 6);
-      if (o.animating) {
+      const animations = MI.objectAnimations(def);
+      const anim = animations[o.anim] || animations[0];
+      const frames = (anim && anim.frames) || [];
+      const frameMs = 1000 / Math.max(1, MI.animFps(anim && anim.speed));
+      if (o.animating && frames.length) {
         o.animTime += dt;
         while (o.animTime >= frameMs) {
           o.animTime -= frameMs;
           const prev = o.frame;
-          o.frame = (o.frame + 1) % 4;
+          o.frame = (o.frame + 1) % frames.length;
           o.frameChanged = o.frame !== prev;
           if (o.frame === 0 && o.frameChanged) o.lastLoop = true;
         }
@@ -273,7 +285,21 @@
     checkGoal() {
       if (!this.def.goal) return;
       const g = this.def.goal;
-      if (g.type === 'switch' && g.objectId) {
+      if (g.type === 'switches') {
+        // Cada grupo es una condición AND de interruptores; los grupos se
+        // combinan con OR: basta con que uno esté completo para ganar.
+        const groups = Array.isArray(g.groups) ? g.groups : [];
+        for (const group of groups) {
+          if (!Array.isArray(group) || !group.length) continue;
+          if (group.every(id => {
+            const o = this.getObject(id);
+            return !!(o && o.switch);
+          })) {
+            this.win('switches');
+            break;
+          }
+        }
+      } else if (g.type === 'switch' && g.objectId) {
         const o = this.getObject(g.objectId);
         if (o && o.switch) this.win('switch');
       } else if (g.type === 'touch' && g.objectId) {
@@ -305,7 +331,11 @@
     finish() {
       if (this.ended) return;
       const g = this.def.goal || { type: 'survive' };
-      if (!this.lost && !this.won && g.type === 'survive') {
+      // Sin condiciones de interruptores configuradas, el microjuego se gana
+      // sobreviviendo hasta el final (comportamiento seguro por defecto).
+      const noSwitchGroups = g.type === 'switches' &&
+        (!Array.isArray(g.groups) || !g.groups.some(gr => Array.isArray(gr) && gr.length));
+      if (!this.lost && !this.won && (g.type === 'survive' || noSwitchGroups)) {
         this.won = true;
         this.winThisFrame = true;
         this.finishReason = 'survive';
@@ -324,6 +354,7 @@
     winReasonText() {
       if (!this.won) return 'No conseguiste el objetivo a tiempo.';
       switch (this.def.goal && this.def.goal.type) {
+        case 'switches': return '¡Interruptores activados!';
         case 'switch': return '¡Interruptor activado!';
         case 'touch': return '¡Has tocado el objetivo!';
         case 'reach': return '¡Objetivo alcanzado!';
@@ -348,8 +379,24 @@
     }
 
     triggerState(rule) {
-      const trig = rule.trigger;
+      let result = this.triggerStateOne(rule, rule.trigger);
+      // Cadena de activadores: se evalúa de izquierda a derecha con el
+      // conector Y/O indicado en cada activador adicional.
+      for (const extra of rule.extraTriggers || []) {
+        if (!extra || !extra.trigger) continue;
+        const value = this.triggerStateOne(rule, extra.trigger);
+        result = extra.logic === 'or' ? (result || value) : (result && value);
+      }
+      return result;
+    }
+
+    triggerStateOne(rule, trig) {
+      if (!trig) return false;
       const subject = this.getObject(rule.subject);
+      // Un objeto invisible no puede tocarse, ni solaparse, ni activar reglas
+      // de contacto o animación. Su interruptor sí sigue existiendo.
+      if (subject && !subject.visible &&
+          ['tap', 'touch', 'overlap', 'anim'].indexOf(trig.type) >= 0) return false;
       switch (trig.type) {
         case 'tap': {
           if (trig.where === 'stage') return this.taps.length > 0;
@@ -360,19 +407,22 @@
           if (!subject) return false;
           const other = trig.mode === 'zone' ? this.getZone(trig.zoneId) : this.getObject(trig.objectId);
           if (!other) return false;
+          if (other.visible === false) return false;
           return U.rectsTouch(rect(subject), other, 8);
         }
         case 'overlap': {
           if (!subject) return false;
           const other = trig.mode === 'zone' ? this.getZone(trig.zoneId) : this.getObject(trig.objectId);
-          if (!other) return false;
+          if (!other || other.visible === false) return false;
           const inter = U.overlapRatio(rect(subject), other);
           return inter >= 0.45;
         }
         case 'anim': {
           if (!subject) return false;
           if (trig.mode === 'end') return !!subject.lastLoop;
-          return subject.frame === trig.frame;
+          if (trig.animation != null && subject.anim !== trig.animation) return false;
+          if (trig.frame != null && subject.frame !== trig.frame) return false;
+          return true;
         }
         case 'time': {
           if (trig.mode === 'interval') return this.t >= trig.from && this.t < trig.to;
@@ -408,6 +458,11 @@
 
     runAction(action, rule) {
       const actor = this.actorFor(action, rule);
+      // Las reglas no modifican objetos invisibles: no se pueden mover, saltar,
+      // cambiar de animación, etc. Se exceptúan el interruptor (que se conserva),
+      // la propia visibilidad y los efectos globales/sonidos.
+      const hiddenOk = ['switch', 'invisible', 'lose', 'sound', 'effect', 'text'];
+      if (actor && actor.visible === false && hiddenOk.indexOf(action.type) < 0) return;
       switch (action.type) {
         case 'moveDir': {
           if (!actor) break;
@@ -542,11 +597,42 @@
           if (!action.value && obj.switch) { obj.switch = false; obj.turnedOff = true; obj.flashSwitch = 400; }
           break;
         }
+        case 'invisible': {
+          if (!actor) break;
+          if (action.value) {
+            actor.visible = false;
+            actor.motion = null;
+            actor.vx = 0;
+            actor.vy = 0;
+          } else {
+            actor.visible = true;
+          }
+          break;
+        }
+        case 'text': {
+          this.dynamicTexts.push({
+            text: action.text,
+            x: action.x,
+            y: action.y,
+            size: action.size,
+            font: action.font,
+            align: action.align,
+            color: action.color,
+            life: action.duration || 0,
+            max: action.duration || 0
+          });
+          break;
+        }
         case 'anim': {
           const obj = action.target === 'self' ? actor : (this.getObject(action.target) || actor);
           if (!obj) break;
           if (action.mode === 'stop') obj.animating = false;
-          else { obj.frame = action.frame; obj.animTime = 0; obj.animating = true; }
+          else {
+            if (action.animation != null) obj.anim = U.clamp(action.animation | 0, 0, 3);
+            obj.frame = action.frame != null ? U.clamp(action.frame | 0, 0, 3) : 0;
+            obj.animTime = 0;
+            obj.animating = true;
+          }
           break;
         }
         case 'effect':
@@ -611,6 +697,24 @@
     }
 
     /* ------------------------------ render ------------------------------ */
+    drawText(ctx, t, alpha) {
+      if (!t || !t.text) return;
+      const a = alpha == null ? 1 : alpha;
+      if (a <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.font = '900 ' + Math.max(10, t.size || 48) + 'px ' + MI.fontCss(t.font);
+      ctx.textAlign = t.align === 'left' ? 'left' : (t.align === 'right' ? 'right' : 'center');
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(3, (t.size || 48) * 0.14);
+      ctx.strokeStyle = 'rgba(16,19,31,.92)';
+      ctx.strokeText(t.text, t.x, t.y);
+      ctx.fillStyle = t.color || '#fff8e8';
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    }
+
     render(ctx) {
       const fx = this.effects;
       let shakeX = 0, shakeY = 0;
@@ -622,13 +726,22 @@
       ctx.save();
       ctx.clearRect(0, 0, NS, NM);
       MI.sprites.background(ctx, this.def.bg, NS, NM);
+      // Textos fijos del escenario (debajo de los objetos).
+      for (const t of this.stageTexts) this.drawText(ctx, t, 1);
       ctx.translate(shakeX, shakeY);
       ctx.imageSmoothingEnabled = false;
       for (const o of this.objects) {
         if (!o.visible) continue;
-        const data = o.def.anims[o.frame] || o.def.anims[0];
+        const anim = MI.objectAnimations(o.def)[o.anim] || MI.objectAnimations(o.def)[0];
+        const data = (anim && anim.frames[o.frame]) || (anim && anim.frames[0]);
         if (o.flashSwitch > 0) o.flashSwitch = Math.max(0, o.flashSwitch - 16);
         MI.sprites.draw(ctx, data, o.x, o.y, o.w, o.h);
+      }
+      // Textos creados por la acción «Añadir texto» (encima de los objetos).
+      for (const t of this.dynamicTexts) {
+        let a = 1;
+        if (t.life > 0 && t.max > 0) a = U.clamp(t.life / Math.min(320, t.max), 0, 1);
+        this.drawText(ctx, t, a);
       }
       // ondas de toque
       for (const r of fx.ripples) {

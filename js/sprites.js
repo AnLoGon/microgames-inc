@@ -649,6 +649,11 @@
       }
       while (frames.length < 4) frames.push(frames[frames.length - 1]);
       frames = frames.slice(0, 4);
+      const animations = MI.normalizeAnimations({
+        animations: opts.animations,
+        anims: frames,
+        fps: opts.fps || 6
+      });
       return {
         id: MI.util.uid('obj'),
         name: name || DISPLAY_NAMES[key] || 'Objeto',
@@ -659,8 +664,9 @@
         placement: opts.placement === 'zone' ? 'zone' : 'point',
         zone: opts.zone || { x: 320, y: 160, w: 640, h: 400 },
         visible: opts.visible !== false,
-        fps: opts.fps || 6,
-        anims: frames
+        animations,
+        anims: animations[0].frames.slice(),
+        fps: MI.animFps(animations[0].speed)
       };
     },
     thumb(canvas, data) {
@@ -679,10 +685,25 @@
       ctx.save();
       ctx.scale(sx, sy);
       MI.sprites.background(ctx, (game && game.bg) || { color: '#101a36', pattern: 'grid', accent: '#4fd1ff' }, MI.W, MI.H);
+      if (game && Array.isArray(game.texts)) {
+        game.texts.forEach(t => {
+          if (!t || !t.text) return;
+          ctx.font = '900 ' + Math.max(10, t.size || 48) + 'px ' + MI.fontCss(t.font);
+          ctx.textAlign = t.align === 'left' ? 'left' : (t.align === 'right' ? 'right' : 'center');
+          ctx.textBaseline = 'middle';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = Math.max(3, (t.size || 48) * 0.14);
+          ctx.strokeStyle = 'rgba(16,19,31,.92)';
+          ctx.strokeText(t.text, t.x, t.y);
+          ctx.fillStyle = t.color || '#fff8e8';
+          ctx.fillText(t.text, t.x, t.y);
+        });
+      }
       if (game && Array.isArray(game.objects)) {
         game.objects.forEach(o => {
           if (o.visible === false) return;
-          drawSprite(ctx, o.anims[0], o.x, o.y, o.w, o.h);
+          const anim = MI.objectAnimations(o)[0];
+          drawSprite(ctx, anim && anim.frames[0], o.x, o.y, o.w, o.h);
         });
       }
       ctx.restore();

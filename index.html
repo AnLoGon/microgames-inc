@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#141c38">
-<title>Microgames Inc. — Editor de microjuegos</title>
-<link rel="stylesheet" href="css/styles.css?v=3">
+<title>Microgames Inc. 0.3 — Editor de microjuegos</title>
+<link rel="stylesheet" href="css/styles.css?v=6">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23ffd23f'/><rect x='5' y='7' width='22' height='18' rx='4' fill='%231b2340'/><rect x='9' y='11' width='14' height='10' fill='%234fd1ff'/></svg>">
 </head>
 <body>
@@ -16,11 +16,20 @@
     <div class="menu-wrap">
       <header class="menu-top">
         <div class="brand">
-          <span class="brand-badge">DS</span>
-          <span class="brand-name">MICROGAMES<span class="brand-inc">INC.</span></span>
+          <span class="brand-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M6.5 7h11c2.6 0 4.2 1.9 4.5 4.4l.6 4.7c.2 1.6-1.7 2.5-2.8 1.3l-1.9-2.1H5.1l-1.9 2.1c-1.1 1.2-3 .3-2.8-1.3l.6-4.7C1.3 8.9 2.9 7 5.5 7z" fill="#1b2340"/>
+              <rect x="6" y="10" width="5" height="1.7" rx=".85" fill="#ffd23f"/>
+              <rect x="7.65" y="8.35" width="1.7" height="5" rx=".85" fill="#ffd23f"/>
+              <circle cx="15.5" cy="10" r="1.4" fill="#ffd23f"/>
+              <circle cx="18" cy="12.2" r="1.4" fill="#ffd23f"/>
+            </svg>
+          </span>
+          <span class="brand-name">MICROGAMES<span class="brand-inc">INC.</span><span class="brand-version">0.3</span></span>
         </div>
         <div class="menu-top-actions">
           <button class="icon-btn" id="btn-mute" title="Activar / silenciar sonido" aria-label="Sonido">🔊</button>
+          <button class="btn btn-paper btn-sm" id="btn-changelog" title="Actualizaciones, mejoras y arreglos">🆕 Novedades</button>
           <button class="icon-btn" id="btn-menu-help" title="Cómo se juega" aria-label="Ayuda">?</button>
         </div>
       </header>
@@ -36,7 +45,6 @@
             <button class="btn btn-cyan btn-xl" id="btn-marathon">🏁 Modo maratón</button>
             <button class="btn btn-paper btn-xl" id="btn-mygames">🗂️ Mis microjuegos</button>
           </div>
-          <p class="hero-footnote">Con ratón en ordenador, con el dedo en móviles y tablets. Tus microjuegos se guardan en este dispositivo y se pueden exportar.</p>
         </div>
         <div class="hero-art">
           <div class="hero-screen">
@@ -85,8 +93,7 @@
       </section>
 
       <footer class="menu-footer">
-        <span>MICROGAMES INC. · Homenaje a WarioWare: Do It Yourself</span>
-        <span class="footer-ticker">TIP: Todos los interruptores empiezan en OFF. Los microjuegos acaban siempre al agotarse el tiempo.</span>
+        <span>MICROGAMES INC. 0.2 · Homenaje a WarioWare: Do It Yourself</span>
       </footer>
     </div>
   </section>
@@ -139,6 +146,12 @@
           <button class="btn btn-paper btn-sm" id="btn-import-editor" title="Importar archivo">📥</button>
           <button class="btn btn-paper btn-sm" id="btn-export" title="Exportar archivo">📤</button>
           <button class="btn btn-paper btn-sm" id="btn-save">💾 Guardar</button>
+          <select class="select test-speed" id="test-speed" title="Velocidad del tiempo al probar">
+            <option value="0.5">0,5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+          </select>
           <button class="btn btn-lime btn-sm" id="btn-test">▶ Probar</button>
         </div>
       </header>
@@ -165,6 +178,7 @@
             <div class="tool-group" role="group" aria-label="Herramientas">
               <button class="tool active" data-tool="select" title="Seleccionar y mover">🖱️ Mover</button>
               <button class="tool" data-tool="zone" title="Dibujar zona">⬚ Zona</button>
+              <button class="tool" data-tool="text" title="Añadir texto al escenario">T Texto</button>
             </div>
             <div class="stage-toolbar-right">
               <label class="switch-inline"><input type="checkbox" id="snap-grid" checked><span>Rejilla</span></label>
@@ -226,6 +240,7 @@
             <div class="overlay hidden" id="player-intro"></div>
             <div class="overlay hidden" id="player-result"></div>
             <div class="overlay hidden" id="player-pause-overlay"></div>
+            <div class="preview-hud hidden" id="preview-hud" aria-live="polite"></div>
           </div>
           <div class="timerbar" id="timerbar">
             <div class="timerbar-fill" id="timer-fill"></div>
@@ -249,14 +264,14 @@
 <div id="modal-root"></div>
 <div id="toast-root" class="toast-root"></div>
 
-<script src="js/core.js?v=3"></script>
-<script src="js/sprites.js?v=3"></script>
-<script src="js/audio.js?v=3"></script>
-<script src="js/engine.js?v=3"></script>
-<script src="js/examples.js?v=3"></script>
-<script src="js/pixel.js?v=3"></script>
-<script src="js/editor.js?v=3"></script>
-<script src="js/player.js?v=3"></script>
-<script src="js/app.js?v=3"></script>
+<script src="js/core.js?v=6"></script>
+<script src="js/sprites.js?v=6"></script>
+<script src="js/audio.js?v=6"></script>
+<script src="js/engine.js?v=6"></script>
+<script src="js/examples.js?v=6"></script>
+<script src="js/pixel.js?v=6"></script>
+<script src="js/editor.js?v=6"></script>
+<script src="js/player.js?v=6"></script>
+<script src="js/app.js?v=6"></script>
 </body>
 </html>

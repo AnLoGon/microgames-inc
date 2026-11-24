@@ -9,10 +9,185 @@
 
   MI.W = 1280;
   MI.H = 720;
-  MI.VERSION = 2;
+  MI.VERSION = 3;
   MI.FORMAT = 'microgames-inc';
   MI.OBJ_MIN = 48;
   MI.OBJ_MAX = 256;
+  MI.MAX_GOAL_GROUPS = 5;
+  MI.MAX_EXTRA_TRIGGERS = 6;
+  MI.MAX_TEXTS = 30;
+  MI.ANIM_COUNT = 4;
+  MI.MAX_ANIM_NAME = 12;
+
+  // Velocidad de animación: 1 = más lento, 5 = más rápido.
+  MI.ANIM_SPEEDS = [
+    { value: 1, label: '1 · Muy lento', fps: 2 },
+    { value: 2, label: '2 · Lento', fps: 4 },
+    { value: 3, label: '3 · Normal', fps: 6 },
+    { value: 4, label: '4 · Rápido', fps: 9 },
+    { value: 5, label: '5 · Muy rápido', fps: 14 }
+  ];
+
+  // Velocidad de movimiento: 1 = más lento, 5 = más rápido.
+  MI.MOVE_SPEEDS = [
+    { value: 1, label: '1 · Muy lento', px: 40 },
+    { value: 2, label: '2 · Lento', px: 70 },
+    { value: 3, label: '3 · Normal', px: 110 },
+    { value: 4, label: '4 · Rápido', px: 170 },
+    { value: 5, label: '5 · Muy rápido', px: 260 }
+  ];
+
+  MI.animSpeed = function (level) {
+    const l = Math.round(Number(level));
+    const item = MI.ANIM_SPEEDS.find(s => s.value === l) || MI.ANIM_SPEEDS[2];
+    return item;
+  };
+  MI.animFps = function (level) { return MI.animSpeed(level).fps; };
+  MI.animSpeedLevel = function (fps) {
+    const n = Number(fps) || 6;
+    let best = 3, dist = Infinity;
+    MI.ANIM_SPEEDS.forEach(s => {
+      const d = Math.abs(s.fps - n);
+      if (d < dist) { dist = d; best = s.value; }
+    });
+    return best;
+  };
+
+  MI.moveSpeed = function (level) {
+    const l = Math.round(Number(level));
+    return (MI.MOVE_SPEEDS.find(s => s.value === l) || MI.MOVE_SPEEDS[2]).px;
+  };
+  MI.moveSpeedLevel = function (px) {
+    const n = Number(px) || 0;
+    if (n <= 40) return 1;
+    if (n <= 80) return 2;
+    if (n <= 130) return 3;
+    if (n <= 200) return 4;
+    return 5;
+  };
+
+  // Versión visible del producto (independiente de la versión del esquema).
+  MI.APP_VERSION = '0.3';
+  MI.CHANGELOG = [
+    {
+      version: '0.3',
+      title: 'Animaciones, velocidades y tus propios objetos',
+      items: [
+        'Cada objeto tiene 4 animaciones con nombre propio (máximo 12 caracteres), 4 celdas editables y velocidad de 1 a 5.',
+        'Las velocidades de movimiento ahora se eligen con un nivel de 1 (más lento) a 5 (más rápido), sin escribir píxeles.',
+        'Al crear un objeto puedes elegir un sprite predefinido, abrir un lienzo vacío desde cero o usar uno guardado en «Mis objetos».',
+        '«Mis objetos» guarda en el navegador los objetos que creas o personalizas para reutilizarlos en cualquier microjuego.',
+        'La acción y el activador de animación eligen entre las 4 animaciones del objeto.',
+        'Los microjuegos anteriores se adaptan automáticamente al nuevo sistema de animaciones.'
+      ]
+    },
+    {
+      version: '0.2',
+      title: 'Textos, objetos invisibles y pruebas más cómodas',
+      items: [
+        'Textos en el escenario con fuente, tamaño, color y alineación; también como acción «Añadir texto».',
+        'Nueva acción «Objeto invisible»: deja de renderizarse y de recibir toques o reglas, pero conserva su interruptor.',
+        'Al probar desde el editor se ve el estado ON/OFF de todos los objetos y puedes cambiar la velocidad del tiempo.',
+        'La pestaña Lógica muestra solo las reglas del objeto seleccionado, con copiar y pegar entre objetos.',
+        'La acción «Interruptor» muestra una única lista de objetos.',
+        'Portada sin consejos al pie y con este registro de novedades.'
+      ]
+    },
+    {
+      version: '0.1',
+      title: 'Primera versión del editor',
+      items: [
+        'Editor visual de escenario 1280 × 720, objetos de 48 a 256 px y zonas.',
+        'Reglas con activadores Y/O y acciones ordenables.',
+        'Objetivos por interruptores, maratón de 4 vidas, importación y exportación.'
+      ]
+    }
+  ];
+
+  MI.FONTS = [
+    { value: 'display', label: 'Display (gruesa)', css: '"Arial Black", Impact, sans-serif' },
+    { value: 'sans', label: 'Sans (limpia)', css: 'Arial, Helvetica, sans-serif' },
+    { value: 'mono', label: 'Mono (píxel)', css: 'Consolas, "Courier New", monospace' },
+    { value: 'serif', label: 'Serif (clásica)', css: 'Georgia, "Times New Roman", serif' }
+  ];
+  MI.TEXT_ALIGNS = [
+    { value: 'left', label: 'Izquierda' },
+    { value: 'center', label: 'Centro' },
+    { value: 'right', label: 'Derecha' }
+  ];
+
+  MI.fontCss = function (id) {
+    const f = MI.FONTS.find(x => x.value === id);
+    return (f || MI.FONTS[0]).css;
+  };
+
+  /* ----------------------------- animaciones ----------------------------- */
+  const EMPTY_FRAME = '0'.repeat(256);
+
+  function validFrame(data) {
+    if (Array.isArray(data)) data = data.join('');
+    return (typeof data === 'string' && data.length === 256 && !/[^0-9a-f]/i.test(data)) ? data : null;
+  }
+
+  function animName(name, index) {
+    const clean = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+    return (clean || ('Animación ' + (index + 1))).slice(0, MI.MAX_ANIM_NAME);
+  }
+
+  function animFrames(source) {
+    const frames = [];
+    for (let i = 0; i < 4; i++) {
+      const data = source && Array.isArray(source.frames) ? source.frames[i] :
+        (source && Array.isArray(source.anims) ? source.anims[i] : null);
+      frames.push(validFrame(data) || EMPTY_FRAME);
+    }
+    return frames;
+  }
+
+  MI.normalizeAnimations = function (obj) {
+    obj = obj || {};
+    const source = Array.isArray(obj.animations) ? obj.animations : null;
+    let list = [];
+
+    if (source && source.length) {
+      list = source.slice(0, MI.ANIM_COUNT).map((a, i) => ({
+        name: animName(a && a.name, i),
+        speed: U.clamp(Math.round(Number(a && a.speed) || 3), 1, 5),
+        frames: animFrames(a)
+      }));
+    } else {
+      // Objetos antiguos: sus 4 celdas pasan a ser la primera animación.
+      const fps = Number(obj.fps) || 6;
+      const frames = animFrames({ frames: obj.anims });
+      list.push({ name: 'Animación 1', speed: MI.animSpeedLevel(fps), frames });
+    }
+
+    while (list.length < MI.ANIM_COUNT) {
+      const base = list[list.length - 1] || list[0];
+      list.push({
+        name: 'Animación ' + (list.length + 1),
+        speed: base ? base.speed : 3,
+        frames: base ? base.frames.slice() : [EMPTY_FRAME, EMPTY_FRAME, EMPTY_FRAME, EMPTY_FRAME]
+      });
+    }
+    return list;
+  };
+
+  // Mantiene los campos antiguos (anims/fps) sincronizados con la primera
+  // animación para que las exportaciones sigan siendo compatibles.
+  MI.syncObjectAliases = function (obj) {
+    if (!obj) return obj;
+    const animations = MI.normalizeAnimations(obj);
+    obj.animations = animations;
+    obj.anims = animations[0].frames.slice();
+    obj.fps = MI.animFps(animations[0].speed);
+    return obj;
+  };
+
+  MI.objectAnimations = function (obj) {
+    return (obj && Array.isArray(obj.animations) && obj.animations.length) ?
+      obj.animations : MI.normalizeAnimations(obj || {});
+  };
 
   /* ----------------------------- utilidades ----------------------------- */
   const U = MI.util = {
@@ -228,6 +403,7 @@
   const KEY_GAMES = 'mi.games.v1';
   const KEY_DRAFT = 'mi.draft.v1';
   const KEY_SETTINGS = 'mi.settings.v1';
+  const KEY_OBJECTS = 'mi.objects.v1';
 
   function safeGet(key, fallback) {
     try {
@@ -271,6 +447,36 @@
       safeSet(KEY_GAMES, games);
     },
     count() { return this.list().length; },
+    objects() {
+      const arr = safeGet(KEY_OBJECTS, []);
+      if (!Array.isArray(arr)) return [];
+      return arr.map((o, i) => {
+        if (!o || typeof o !== 'object') return null;
+        return {
+          id: String(o.id || U.uid('uobj')),
+          name: String(o.name || ('Objeto ' + (i + 1))).slice(0, 24),
+          animations: MI.normalizeAnimations(o),
+          createdAt: Number(o.createdAt) || Date.now()
+        };
+      }).filter(Boolean);
+    },
+    saveObject(obj, name) {
+      if (!obj) return null;
+      const list = this.objects();
+      const template = {
+        id: U.uid('uobj'),
+        name: String(name || obj.name || 'Mi objeto').replace(/\s+/g, ' ').trim().slice(0, 24) || 'Mi objeto',
+        animations: MI.normalizeAnimations(obj),
+        createdAt: Date.now()
+      };
+      list.unshift(template);
+      safeSet(KEY_OBJECTS, list.slice(0, 60));
+      return template;
+    },
+    removeObject(id) {
+      safeSet(KEY_OBJECTS, this.objects().filter(o => o.id !== id));
+    },
+    objectCount() { return this.objects().length; },
     getDraft() { return safeGet(KEY_DRAFT, null); },
     setDraft(game) { safeSet(KEY_DRAFT, game); },
     clearDraft() { try { localStorage.removeItem(KEY_DRAFT); } catch (e) { /* noop */ } },
@@ -317,11 +523,16 @@
     lose: 'Derrota',
     sound: 'Sonido',
     switch: 'Interruptor',
+    invisible: 'Objeto invisible',
+    text: 'Añadir texto',
     anim: 'Animación',
     effect: 'Efecto'
   };
 
+  // El editor solo permite condiciones de victoria por interruptores. Los tipos
+  // antiguos se conservan para poder cargar y jugar microjuegos ya creados.
   MI.GOALS = {
+    switches: 'Interruptores encendidos',
     survive: 'Sobrevivir hasta el final',
     switch: 'Activar el interruptor de un objeto',
     touch: 'Tocar un objeto concreto',
@@ -346,7 +557,8 @@
 
     // Los microjuegos de la versión 1 se diseñaron en 320×240. Se convierten
     // a la resolución actual (1280×720) sin deformar ni recortar el escenario.
-    const legacy = (Number(src.version) || 1) < MI.VERSION;
+    // La versión 2 ya usaba 1280×720, aunque no tuviera animaciones múltiples.
+    const legacy = (Number(src.version) || 1) < 2;
     const kx = legacy ? MI.W / 320 : 1;
     const ky = legacy ? MI.H / 240 : 1;
     const ka = legacy ? 4 : 1;
@@ -360,6 +572,15 @@
     const pw = (v, def, min, max) => U.clamp(Math.round(num(v, def) * ka), min, max);
     const speed = (v, def, min, max) => U.clamp(Math.round(num(v, def) * ka), min, max);
     const ms = (v, def) => U.clamp(Math.round(num(v, def)), 100, 60000);
+    const moveSpeed = (act, a, def, min, max) => {
+      if (a.speedLevel != null) {
+        act.speedLevel = U.clamp(Math.round(num(a.speedLevel, 3)), 1, 5);
+        act.speed = MI.moveSpeed(act.speedLevel);
+      } else {
+        act.speed = speed(a.speed, def, min, max);
+        act.speedLevel = MI.moveSpeedLevel(act.speed);
+      }
+    };
 
     const game = {
       format: MI.FORMAT,
@@ -375,9 +596,10 @@
         pattern: MI.patterns.indexOf((src.bg || {}).pattern) >= 0 ? src.bg.pattern : 'grid',
         accent: /^#[0-9a-fA-F]{6}$/.test((src.bg || {}).accent || '') ? src.bg.accent : '#4fd1ff'
       },
-      goal: { type: 'survive', objectId: null, zoneId: null },
+      goal: { type: 'switches', groups: [], objectId: null, zoneId: null },
       objects: [],
       zones: [],
+      texts: [],
       rules: [],
       example: !!src.example,
       createdAt: Number(src.createdAt) || Date.now(),
@@ -406,21 +628,34 @@
       });
     });
 
+    // Textos fijos del escenario.
+    const textIds = new Set();
+    (Array.isArray(src.texts) ? src.texts : []).slice(0, MI.MAX_TEXTS).forEach((t, i) => {
+      if (!t || typeof t !== 'object') return;
+      let id = t.id ? String(t.id) : U.uid('text');
+      if (textIds.has(id)) id = U.uid('text');
+      textIds.add(id);
+      const content = String(t.text != null ? t.text : '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (!content) return;
+      game.texts.push({
+        id,
+        text: content,
+        x: px(t.x, MI.W / 2),
+        y: py(t.y, MI.H / 2),
+        size: U.clamp(Math.round(num(t.size, 48)), 10, 160),
+        font: MI.FONTS.some(f => f.value === t.font) ? t.font : 'display',
+        align: MI.TEXT_ALIGNS.some(a => a.value === t.align) ? t.align : 'center',
+        color: /^#[0-9a-fA-F]{6}$/.test(t.color || '') ? t.color : '#fff8e8'
+      });
+    });
+
     const objIds = new Set();
     (Array.isArray(src.objects) ? src.objects : []).slice(0, 40).forEach((o, i) => {
       if (!o || typeof o !== 'object') return;
       let id = o.id ? String(o.id) : U.uid('obj');
       if (objIds.has(id)) id = U.uid('obj');
       objIds.add(id);
-      const anims = [];
-      for (let f = 0; f < 4; f++) {
-        let data = Array.isArray(o.anims) ? o.anims[f] : null;
-        if (Array.isArray(data)) data = data.join('');
-        if (typeof data !== 'string' || data.length !== 256 || /[^0-9a-f]/i.test(data)) {
-          data = MI.sprites ? MI.sprites.empty() : '0'.repeat(256);
-        }
-        anims.push(data);
-      }
+      const animations = MI.normalizeAnimations(o);
       const placement = o.placement === 'zone' ? 'zone' : 'point';
       const zone = o.zone && typeof o.zone === 'object' ? o.zone : { x: 40, y: 40, w: 100, h: 80 };
       game.objects.push({
@@ -438,12 +673,33 @@
           h: pw(zone.h, 56, 16, 2880)
         },
         visible: o.visible !== false,
-        fps: U.clamp(Math.round(Number(o.fps) || 6), 1, 30),
-        anims
+        animations,
+        // Alias heredados: primera animación y su velocidad en fps.
+        anims: animations[0].frames.slice(),
+        fps: MI.animFps(animations[0].speed)
       });
     });
 
     if (!game.objects.length) throw new Error('El microjuego debe tener al menos un objeto.');
+
+    // Condiciones de victoria por interruptores (se validan cuando ya se
+    // conocen todos los IDs de objeto).
+    game.goal.groups = [];
+    (Array.isArray(goal.groups) ? goal.groups : []).slice(0, MI.MAX_GOAL_GROUPS).forEach(g => {
+      const list = Array.isArray(g) ? g : (g && Array.isArray(g.objects) ? g.objects : []);
+      const ids = [];
+      list.forEach(id => {
+        const sid = String(id);
+        if (objIds.has(sid) && ids.indexOf(sid) < 0) ids.push(sid);
+      });
+      if (ids.length) game.goal.groups.push(ids);
+    });
+    // Los objetivos antiguos de un solo interruptor se convierten en una
+    // condición de victoria equivalente.
+    if (game.goal.type === 'switch' && game.goal.objectId && !game.goal.groups.length &&
+        objIds.has(game.goal.objectId)) {
+      game.goal.groups.push([game.goal.objectId]);
+    }
 
     const validTrigger = (tr) => {
       if (!tr || typeof tr !== 'object' || !MI.TRIGGERS[tr.type]) return null;
@@ -458,7 +714,14 @@
       }
       if (tr.type === 'anim') {
         t.mode = tr.mode === 'end' ? 'end' : 'specific';
-        t.frame = U.clamp(Math.round(Number(tr.frame) || 0), 0, 3);
+        if (tr.animation != null) {
+          t.animation = U.clamp(Math.round(Number(tr.animation) || 0), 0, 3);
+          t.frame = null;
+        } else {
+          // Compatibilidad: antes «frame» era la celda de la única animación.
+          t.animation = 0;
+          t.frame = U.clamp(Math.round(Number(tr.frame) || 0), 0, 3);
+        }
       }
       if (tr.type === 'time') {
         t.mode = tr.mode === 'interval' ? 'interval' : 'point';
@@ -484,28 +747,28 @@
       const objRef = (v) => objIds.has(String(v)) ? String(v) : null;
       const zoneRef = (v) => zoneIds.has(String(v)) ? String(v) : null;
 
-      if (['moveDir', 'moveRandom', 'moveTo', 'moveFrom', 'jumpPoint', 'jumpZone', 'jumpObject', 'wander', 'swap', 'approach', 'anim'].indexOf(a.type) >= 0) {
+      if (['moveDir', 'moveRandom', 'moveTo', 'moveFrom', 'jumpPoint', 'jumpZone', 'jumpObject', 'wander', 'swap', 'approach', 'anim', 'invisible'].indexOf(a.type) >= 0) {
         act.target = target;
       }
       switch (a.type) {
         case 'moveDir':
           act.dir = U.clamp(Math.round(Number(a.dir) || 0), 0, 7);
-          act.speed = speed(a.speed, 60, 16, 1600);
+          moveSpeed(act, a, 60, 16, 1600);
           break;
         case 'moveRandom':
-          act.speed = speed(a.speed, 60, 16, 1600);
+          moveSpeed(act, a, 60, 16, 1600);
           break;
         case 'moveTo':
           act.x = px(a.x, 0);
           act.y = py(a.y, 0);
-          act.speed = speed(a.speed, 60, 16, 1600);
+          moveSpeed(act, a, 60, 16, 1600);
           break;
         case 'moveFrom':
           act.fromMode = a.fromMode === 'object' ? 'object' : 'point';
           act.fromObjectId = objRef(a.fromObjectId);
           act.x = px(a.x, 0);
           act.y = py(a.y, 0);
-          act.speed = speed(a.speed, 60, 16, 1600);
+          moveSpeed(act, a, 60, 16, 1600);
           if (act.fromMode === 'object' && !act.fromObjectId) return null;
           break;
         case 'jumpPoint':
@@ -525,7 +788,7 @@
           act.mode = ['wobble', 'billiard', 'fly', 'ball'].indexOf(a.mode) >= 0 ? a.mode : 'wobble';
           act.zoneId = zoneRef(a.zoneId);
           act.avoid = !!a.avoid;
-          act.speed = speed(a.speed, 55, 24, 1200);
+          moveSpeed(act, a, 55, 24, 1200);
           if (!act.zoneId) return null;
           break;
         case 'swap':
@@ -535,7 +798,7 @@
         case 'approach':
           act.objectId = objRef(a.objectId);
           act.distance = U.clamp(Math.round(num(a.distance, 0) * ka), 0, 1200);
-          act.speed = speed(a.speed, 60, 16, 1200);
+          moveSpeed(act, a, 60, 16, 1200);
           if (!act.objectId) return null;
           break;
         case 'sound':
@@ -545,9 +808,29 @@
           act.objectId = a.objectId === 'self' || !a.objectId ? 'self' : (objRef(a.objectId) || 'self');
           act.value = a.value === true;
           break;
+        case 'invisible':
+          act.value = a.value !== false;
+          break;
+        case 'text':
+          act.text = String(a.text != null ? a.text : '¡Bien!').replace(/\s+/g, ' ').trim().slice(0, 80) || '¡Bien!';
+          act.x = px(a.x, MI.W / 2);
+          act.y = py(a.y, MI.H / 2);
+          act.size = U.clamp(Math.round(num(a.size, 56)), 10, 160);
+          act.font = MI.FONTS.some(f => f.value === a.font) ? a.font : 'display';
+          act.align = MI.TEXT_ALIGNS.some(x => x.value === a.align) ? a.align : 'center';
+          act.color = /^#[0-9a-fA-F]{6}$/.test(a.color || '') ? a.color : '#fff8e8';
+          act.duration = U.clamp(Math.round(num(a.duration, 1600)), 0, 10000);
+          break;
         case 'anim':
           act.mode = a.mode === 'stop' ? 'stop' : 'set';
-          act.frame = U.clamp(Math.round(Number(a.frame) || 0), 0, 3);
+          if (a.animation != null) {
+            act.animation = U.clamp(Math.round(Number(a.animation) || 0), 0, 3);
+            act.frame = a.frame != null ? U.clamp(Math.round(Number(a.frame) || 0), 0, 3) : null;
+          } else {
+            // Compatibilidad: antes «frame» era la celda de la única animación.
+            act.animation = 0;
+            act.frame = U.clamp(Math.round(Number(a.frame) || 0), 0, 3);
+          }
           break;
         case 'effect':
           act.effect = ['flash', 'confetti', 'shake', 'freeze'].indexOf(a.effect) >= 0 ? a.effect : 'flash';
@@ -557,20 +840,49 @@
       return act;
     };
 
+    const triggerNeedsSubject = (t) => {
+      if (!t) return false;
+      if (t.type === 'tap') return t.where !== 'stage';
+      if (t.type === 'touch' || t.type === 'overlap' || t.type === 'anim') return true;
+      if (t.type === 'switch') return t.objectId === 'self';
+      return false;
+    };
+
     (Array.isArray(src.rules) ? src.rules : []).slice(0, 120).forEach((r) => {
       if (!r || typeof r !== 'object') return;
-      const trigger = validTrigger(r.trigger);
+      // Formato nuevo: r.triggers = [{ logic: 'and'|'or', trigger }, ...].
+      // Se acepta también el formato antiguo con r.trigger y r.extraTriggers.
+      let rawList = null;
+      if (Array.isArray(r.triggers)) rawList = r.triggers.slice();
+      else if (Array.isArray(r.extraTriggers)) {
+        rawList = [{ logic: 'and', trigger: r.trigger }].concat(r.extraTriggers);
+      }
+      const firstRaw = rawList && rawList.length
+        ? (rawList[0] && rawList[0].trigger ? rawList[0].trigger : rawList[0])
+        : r.trigger;
+      const trigger = validTrigger(firstRaw);
       if (!trigger) return;
       const subject = r.subject && r.subject !== 'stage' && objIds.has(String(r.subject)) ? String(r.subject) : 'stage';
-      if ((trigger.type === 'tap' && trigger.where === 'self') || trigger.type === 'anim') {
-        if (subject === 'stage') return;
+      if (subject === 'stage' && triggerNeedsSubject(trigger)) return;
+
+      const extraTriggers = [];
+      if (rawList) {
+        rawList.slice(1, 1 + MI.MAX_EXTRA_TRIGGERS).forEach(entry => {
+          const wrapped = !!(entry && entry.trigger);
+          const tr = validTrigger(wrapped ? entry.trigger : entry);
+          if (!tr) return;
+          if (subject === 'stage' && triggerNeedsSubject(tr)) return;
+          extraTriggers.push({ logic: wrapped && entry.logic === 'or' ? 'or' : 'and', trigger: tr });
+        });
       }
+
       const actions = (Array.isArray(r.actions) ? r.actions : []).map(validAction).filter(Boolean);
       if (!actions.length) return;
       game.rules.push({
         id: r.id ? String(r.id) : U.uid('rule'),
         subject,
         trigger,
+        extraTriggers,
         actions,
         repeat: !!r.repeat,
         enabled: r.enabled !== false
@@ -580,8 +892,17 @@
     // referencias del objetivo
     if (game.goal.objectId && !objIds.has(game.goal.objectId)) game.goal.objectId = null;
     if (game.goal.zoneId && !zoneIds.has(game.goal.zoneId)) game.goal.zoneId = null;
-    if (game.goal.type !== 'survive' && !game.goal.objectId) game.goal.type = 'survive';
-    if (game.goal.type === 'reach' && !game.goal.zoneId) game.goal.type = 'survive';
+    if (game.goal.type === 'switches') {
+      game.goal.groups = game.goal.groups
+        .filter(g => g.length)
+        .slice(0, MI.MAX_GOAL_GROUPS);
+      game.goal.objectId = null;
+      game.goal.zoneId = null;
+    } else if (game.goal.type === 'reach') {
+      if (!game.goal.objectId || !game.goal.zoneId) game.goal.type = 'survive';
+    } else if (game.goal.type === 'switch' || game.goal.type === 'touch') {
+      if (!game.goal.objectId) game.goal.type = 'survive';
+    }
 
     return game;
   };
@@ -615,9 +936,10 @@
       duration: 4000,
       music: 'alegre',
       bg: { color: '#101a36', pattern: 'grid', accent: '#4fd1ff' },
-      goal: { type: 'survive', objectId: null, zoneId: null },
+      goal: { type: 'switches', groups: [], objectId: null, zoneId: null },
       objects: [],
       zones: [],
+      texts: [],
       rules: [],
       example: false,
       createdAt: Date.now(),

@@ -412,6 +412,23 @@
     MI.toast(muted ? 'Sonido silenciado' : 'Sonido activado');
   }
 
+  MI.showChangelog = function () {
+    const sections = (MI.CHANGELOG || []).map((entry, i) => {
+      const items = entry.items.map(it => '<li>' + it + '</li>').join('');
+      return '<section class="changelog-entry' + (i === 0 ? ' latest' : '') + '">' +
+        '<div class="changelog-head"><span class="changelog-version">v' + entry.version + '</span>' +
+        '<h3>' + entry.title + '</h3></div><ul>' + items + '</ul></section>';
+    }).join('');
+    const html = '<p class="field-note" style="margin-bottom:12px">Estas son las actualizaciones, mejoras y arreglos de Microgames Inc.</p>' +
+      '<div class="changelog">' + sections + '</div>';
+    MI.modal.open({
+      title: 'Novedades · versión ' + MI.APP_VERSION,
+      wide: true,
+      body: MI.el('div', { html }),
+      footer: [{ label: '¡Genial!', className: 'btn-primary' }]
+    });
+  };
+
   /* ============================================================
      AYUDA
      ============================================================ */
@@ -436,7 +453,23 @@
         </div>
         <div class="help-card">
           <h3>🔘 Interruptores</h3>
-          <p>Todos los interruptores empiezan en <strong>OFF</strong>. Puedes activarlos con reglas, tocando objetos o mediante otros objetos, y usarlos como condición de victoria.</p>
+          <p>Todos los interruptores empiezan en <strong>OFF</strong>. Puedes activarlos con reglas, tocando objetos o mediante otros objetos. Para ganar hay que cumplir una condición: todos sus interruptores ON (<strong>Y</strong>) o cualquiera de varias condiciones (<strong>O</strong>).</p>
+        </div>
+        <div class="help-card">
+          <h3>🧪 Probar</h3>
+          <p>Desde el editor elige la <strong>velocidad</strong> (0,5× a 3×) y pulsa <strong>▶ Probar</strong>. Durante la prueba verás el estado <strong>ON/OFF</strong> de cada objeto y podrás cambiar la velocidad en vivo. El borrador no se modifica.</p>
+        </div>
+        <div class="help-card">
+          <h3>🔤 Textos</h3>
+          <p>Añade textos fijos al escenario con la herramienta <strong>T Texto</strong> o desde la pestaña <strong>Juego</strong>: fuente, tamaño, color y alineación. La acción <strong>Añadir texto</strong> crea textos temporales durante la partida.</p>
+        </div>
+        <div class="help-card">
+          <h3>🫥 Objetos invisibles</h3>
+          <p>La acción <strong>Objeto invisible</strong> oculta un objeto: no se puede tocar ni le afectan reglas de contacto, movimiento o animación. Su interruptor ON/OFF se conserva y puede volver a mostrarse.</p>
+        </div>
+        <div class="help-card">
+          <h3>📋 Reglas por objeto</h3>
+          <p>La pestaña <strong>Lógica</strong> muestra solo las reglas del objeto seleccionado. Copia una regla con <strong>⧉</strong> y pégala en otro objeto eligiendo el destino.</p>
         </div>
         <div class="help-card">
           <h3>💾 Guardar y compartir</h3>
@@ -567,6 +600,10 @@
 
   function shortGoal(game) {
     switch (game.goal && game.goal.type) {
+      case 'switches': {
+        const groups = (game.goal.groups || []).filter(g => Array.isArray(g) && g.length);
+        return groups.length ? 'Interruptores' : 'Sobrevivir';
+      }
       case 'switch': return 'Interruptor';
       case 'touch': return 'Tocar';
       case 'reach': return 'Alcanzar';
@@ -595,6 +632,10 @@
     on('btn-see-all', 'click', () => A.showGallery('examples'));
     on('btn-import-gallery', 'click', openImport);
     on('btn-mute', 'click', toggleGlobalSound);
+    on('btn-changelog', 'click', () => {
+      MI.audio.sfx('select');
+      MI.showChangelog();
+    });
     on('btn-menu-help', 'click', () => {
       MI.audio.sfx('select');
       MI.showHelp();

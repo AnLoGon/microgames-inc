@@ -38,8 +38,11 @@
     pickDrag: null,
     zoneDrag: null,
     animClock: 0,
+    animIndex: 0,
     animFrame: 0,
     frameClipboard: null,
+    ruleClipboard: null,
+    previewSpeed: 1,
     animPreview: null,
     history: [],
     hIndex: -1,
@@ -77,6 +80,22 @@
   function otherObjects(excludeId) {
     return (state.game.objects || []).filter(o => o.id !== excludeId);
   }
+
+  function createText(data) {
+    const t = {
+      id: U.uid('text'),
+      text: (data && data.text) || 'Texto',
+      x: Math.round(data && data.x != null ? data.x : MI.W / 2),
+      y: Math.round(data && data.y != null ? data.y : MI.H / 2),
+      size: U.clamp(Math.round(data && data.size ? data.size : 56), 10, 160),
+      font: (data && data.font) || 'display',
+      align: (data && data.align) || 'center',
+      color: (data && data.color) || '#ffd23f'
+    };
+    state.game.texts.push(t);
+    return t;
+  }
+  function textById(id) { return (state.game.texts || []).find(t => t.id === id) || null; }
 
   function createZone(rect, name) {
     const z = {
@@ -168,6 +187,7 @@
     MI.modal.close();
     state.active = true;
     state.game = U.deepClone(game);
+    if (!Array.isArray(state.game.texts)) state.game.texts = [];
     state.savedId = opts.savedId || null;
     state.source = opts.source || 'edit';
     state.onExit = opts.onExit || null;
@@ -195,6 +215,8 @@
     setTool('select');
     const snap = $('#snap-grid');
     if (snap) snap.checked = state.snap;
+    const testSpeed = $('#test-speed');
+    if (testSpeed) testSpeed.value = String(state.previewSpeed);
     renderAll();
     updateUndoButtons();
 
@@ -238,7 +260,9 @@
     }
     setHint(tool === 'zone'
       ? 'Arrastra sobre el escenario para dibujar una zona. Puedes salir del borde para agrandarla.'
-      : 'Arrastra los objetos para colocarlos. Haz clic en un objeto o zona para editarlo.');
+      : (tool === 'text'
+        ? 'Haz clic en el escenario para colocar un texto y elegir su fuente, tamaño y alineación.'
+        : 'Arrastra los objetos para colocarlos. Haz clic en un objeto o zona para editarlo.'));
   }
   E.setTool = setTool;
 
@@ -296,8 +320,24 @@
     };
   }
 
+  function animIndexFor(o) {
+    return o && o.id === state.selectedObjectId ? state.animIndex : 0;
+  }
+
+  function animOf(o, index) {
+    const animations = MI.objectAnimations(o);
+    return animations[index] || animations[0];
+  }
+
+  function animFrameData(o, index, frame) {
+    const anim = animOf(o, index);
+    return (anim && anim.frames[frame]) || (anim && anim.frames[0]) || MI.sprites.empty();
+  }
+
   function frameFor(o) {
-    const fps = Math.max(1, o.fps || 6);
+    const index = animIndexFor(o);
+    const anim = animOf(o, index);
+    const fps = Math.max(1, MI.animFps(anim && anim.speed));
     return Math.floor(state.animClock / (1000 / fps)) % 4;
   }
 
@@ -314,6 +354,31 @@
     ctx.textBaseline = 'middle';
     ctx.fillText(text, x + pad, y + h / 2 + 1);
     ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawGrid(ctx) {
+    if (!state.snap) return;
+    ctx.save();
+    // Líneas menores y mayores para poder alinear objetos y zonas con claridad.
+    for (let x = 0; x <= MI.W; x += SNAP_STEP) {
+      const major = x % (SNAP_STEP * 4) === 0;
+      ctx.strokeStyle = major ? 'rgba(255,255,255,.26)' : 'rgba(255,255,255,.12)';
+      ctx.lineWidth = major ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, MI.H);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= MI.H; y += SNAP_STEP) {
+      const major = y % (SNAP_STEP * 4) === 0;
+      ctx.strokeStyle = major ? 'rgba(255,255,255,.26)' : 'rgba(255,255,255,.12)';
+      ctx.lineWidth = major ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(MI.W, y + 0.5);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawZones(ctx) {
@@ -342,6 +407,23 @@
     }
   }
 
+  function drawTexts(ctx) {
+    for (const t of (state.game.texts || [])) {
+      if (!t || !t.text) continue;
+      ctx.save();
+      ctx.font = '900 ' + Math.max(10, t.size || 48) + 'px ' + MI.fontCss(t.font);
+      ctx.textAlign = t.align === 'left' ? 'left' : (t.align === 'right' ? 'right' : 'center');
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(3, (t.size || 48) * 0.14);
+      ctx.strokeStyle = 'rgba(16,19,31,.92)';
+      ctx.strokeText(t.text, t.x, t.y);
+      ctx.fillStyle = t.color || '#fff8e8';
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    }
+  }
+
   function drawObjects(ctx) {
     const selObj = selectedObject();
     if (selObj && selObj.placement === 'zone') {
@@ -360,10 +442,11 @@
 
     for (const o of state.game.objects) {
       const selected = o.id === state.selectedObjectId;
+      const animIndex = animIndexFor(o);
       const frame = frameFor(o);
       ctx.save();
       if (!o.visible) ctx.globalAlpha = 0.32;
-      MI.sprites.draw(ctx, o.anims[frame] || o.anims[0], o.x, o.y, o.w, o.h);
+      MI.sprites.draw(ctx, animFrameData(o, animIndex, frame), o.x, o.y, o.w, o.h);
       if (!o.visible) {
         ctx.globalAlpha = 0.8;
         ctx.strokeStyle = '#7b86a8';
@@ -432,7 +515,9 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, MI.W, MI.H);
     MI.sprites.background(ctx, state.game.bg, MI.W, MI.H);
+    drawGrid(ctx);
     drawZones(ctx);
+    drawTexts(ctx);
     drawObjects(ctx);
     drawPick(ctx);
   }
@@ -457,8 +542,9 @@
     }
     ctx.globalAlpha = 1;
     const frame = frameFor(obj);
+    const animIndex = animIndexFor(obj);
     const s = Math.min(size - 12, size - 12);
-    MI.sprites.draw(ctx, obj.anims[frame] || obj.anims[0], (size - s) / 2, (size - s) / 2, s, s);
+    MI.sprites.draw(ctx, animFrameData(obj, animIndex, frame), (size - s) / 2, (size - s) / 2, s, s);
   }
 
   /* ----------------------------- puntero ----------------------------- */
@@ -468,6 +554,13 @@
     const p = stageCoords(e);
     const canvas = e.currentTarget;
     canvas.focus({ preventScroll: true });
+    if (state.tool === 'text') {
+      const x = snapVal(p.x);
+      const y = snapVal(p.y);
+      setTool('select');
+      openTextEditor(null, { x, y });
+      return;
+    }
     const capture = () => {
       // En algunos navegadores el puntero sintético ya no está activo.
       try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignora */ }
@@ -587,15 +680,15 @@
     } else if (d.kind === 'zone') {
       const z = zoneById(d.zoneId);
       if (!z) return;
-      z.x = Math.round(d.ox + (p.x - d.startX));
-      z.y = Math.round(d.oy + (p.y - d.startY));
+      z.x = U.clamp(snapVal(d.ox + (p.x - d.startX)), BOUNDS.x0, BOUNDS.x1);
+      z.y = U.clamp(snapVal(d.oy + (p.y - d.startY)), BOUNDS.y0, BOUNDS.y1);
       d.moved = true;
       drawStage();
     } else if (d.kind === 'zoneResize') {
       const z = zoneById(d.zoneId);
       if (!z) return;
-      z.w = Math.max(MIN_ZONE, Math.round(d.ow + (p.x - d.startX)));
-      z.h = Math.max(MIN_ZONE, Math.round(d.oh + (p.y - d.startY)));
+      z.w = Math.max(MIN_ZONE, snapVal(d.ow + (p.x - d.startX)));
+      z.h = Math.max(MIN_ZONE, snapVal(d.oh + (p.y - d.startY)));
       d.moved = true;
       drawStage();
     }
@@ -609,7 +702,9 @@
     if (state.pickDrag) {
       const drag = state.pickDrag;
       state.pickDrag = null;
-      const rect = U.rectFromPoints(drag.x0, drag.y0, drag.x1, drag.y1);
+      const rect = U.rectFromPoints(
+        snapVal(drag.x0), snapVal(drag.y0), snapVal(drag.x1), snapVal(drag.y1)
+      );
       const cb = state.pick ? state.pick.cb : null;
       if (rect.w >= 20 && rect.h >= 20) {
         clearPick();
@@ -623,7 +718,9 @@
     if (state.zoneDrag) {
       const drag = state.zoneDrag;
       state.zoneDrag = null;
-      const rect = U.rectFromPoints(drag.x0, drag.y0, drag.x1, drag.y1);
+      const rect = U.rectFromPoints(
+        snapVal(drag.x0), snapVal(drag.y0), snapVal(drag.x1), snapVal(drag.y1)
+      );
       if (rect.w >= 20 && rect.h >= 20) {
         const z = createZone(rect);
         state.selectedObjectId = null;
@@ -659,7 +756,9 @@
   function selectObject(id, doRender) {
     state.selectedObjectId = id;
     state.selectedZoneId = null;
-    if (state.tab !== 'object' && state.tab !== 'anim') state.tab = 'object';
+    // Al cambiar de objeto desde Lógica se mantiene Lógica para comparar,
+    // copiar y pegar reglas sin salir de la pestaña.
+    if (state.tab !== 'object' && state.tab !== 'anim' && state.tab !== 'logic') state.tab = 'object';
     if (doRender !== false) {
       MI.$$('#inspector-tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === state.tab));
       renderObjectList();
@@ -695,7 +794,7 @@
         onclick: () => { MI.audio.sfx('select'); selectObject(o.id); }
       });
       const c = el('canvas', { width: 16, height: 16 });
-      MI.sprites.thumb(c, o.anims[0]);
+      MI.sprites.thumb(c, animFrameData(o, 0, 0));
       btn.appendChild(c);
       btn.appendChild(el('span', { class: 'obj-name', text: o.name }));
       btn.appendChild(el('span', { class: 'switch-led' }));
@@ -748,28 +847,30 @@
     }
     let has = false;
     state.game.rules.forEach(rule => {
-      const t = rule.trigger;
-      if (!t || t.type !== 'time') return;
-      has = true;
-      const from = t.mode === 'interval' ? t.from : t.at;
-      const to = t.mode === 'interval' ? t.to : t.at + 60;
-      const left = U.clamp(from / dur * 100, 0, 100);
-      const width = U.clamp((to - from) / dur * 100, 0.9, 100);
-      const bar = el('div', {
-        class: 'timeline-rule' + (t.mode === 'interval' ? ' interval' : ''),
-        style: { left: left + '%', width: width + '%' },
-        title: (t.mode === 'interval' ? 'Intervalo ' : 'Punto ') + U.msToShort(from) + (t.mode === 'interval' ? ' → ' + U.msToShort(to) : '') + ' · clic para editar'
+      const triggers = [rule.trigger].concat((rule.extraTriggers || []).map(e => e.trigger));
+      triggers.forEach(t => {
+        if (!t || t.type !== 'time') return;
+        has = true;
+        const from = t.mode === 'interval' ? t.from : t.at;
+        const to = t.mode === 'interval' ? t.to : t.at + 60;
+        const left = U.clamp(from / dur * 100, 0, 100);
+        const width = U.clamp((to - from) / dur * 100, 0.9, 100);
+        const bar = el('div', {
+          class: 'timeline-rule' + (t.mode === 'interval' ? ' interval' : ''),
+          style: { left: left + '%', width: width + '%' },
+          title: (t.mode === 'interval' ? 'Intervalo ' : 'Punto ') + U.msToShort(from) + (t.mode === 'interval' ? ' → ' + U.msToShort(to) : '') + ' · clic para editar'
+        });
+        bar.addEventListener('click', () => {
+          setTab('logic');
+          if (rule.subject && rule.subject !== 'stage') selectObject(rule.subject);
+          renderInspector();
+          setTimeout(() => {
+            const card = document.querySelector('[data-rule-id="' + rule.id + '"]');
+            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 60);
+        });
+        track.appendChild(bar);
       });
-      bar.addEventListener('click', () => {
-        setTab('logic');
-        if (rule.subject && rule.subject !== 'stage') selectObject(rule.subject);
-        renderInspector();
-        setTimeout(() => {
-          const card = document.querySelector('[data-rule-id="' + rule.id + '"]');
-          if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 60);
-      });
-      track.appendChild(bar);
     });
     if (!has) {
       track.appendChild(el('span', { class: 'timeline-empty', text: 'Añade reglas con activador de Tiempo para verlas aquí' }));
@@ -825,6 +926,14 @@
 
     $('#btn-save').addEventListener('click', saveGame);
     $('#btn-test').addEventListener('click', testGame);
+    const speedSel = $('#test-speed');
+    if (speedSel) {
+      speedSel.addEventListener('change', () => {
+        const v = Number(speedSel.value);
+        state.previewSpeed = [0.5, 1, 2, 3].indexOf(v) >= 0 ? v : 1;
+        MI.toast('Velocidad de prueba: ' + String(state.previewSpeed).replace('.', ',') + '×');
+      });
+    }
     $('#btn-export').addEventListener('click', exportGame);
     $('#btn-import-editor').addEventListener('click', () => {
       if (!fileInput) {
@@ -847,7 +956,11 @@
     MI.$$('.stage-toolbar .tool[data-tool]').forEach(btn => {
       btn.addEventListener('click', () => { setTool(btn.dataset.tool); drawStage(); });
     });
-    $('#snap-grid').addEventListener('change', (e) => { state.snap = e.target.checked; });
+    $('#snap-grid').addEventListener('change', (e) => {
+      state.snap = e.target.checked;
+      drawStage();
+      MI.toast(state.snap ? 'Rejilla activada: todo se ajusta a la cuadrícula' : 'Rejilla desactivada: movimiento libre');
+    });
     $('#btn-undo').addEventListener('click', undo);
     $('#btn-redo').addEventListener('click', redo);
 
@@ -1032,7 +1145,7 @@
     const top = el('div', { class: 'obj-preview-row' });
     const prev = el('div', { class: 'obj-preview-big' });
     const pc = el('canvas', { width: 64, height: 64 });
-    MI.sprites.thumb(pc, obj.anims[0]);
+    MI.sprites.thumb(pc, animFrameData(obj, state.animIndex, 0));
     prev.appendChild(pc);
     const meta = el('div', { style: { flex: '1', minWidth: '0' } });
     meta.appendChild(el('div', { class: 'micro-label', text: 'Nombre' }));
@@ -1158,9 +1271,28 @@
     body.appendChild(checkRow('Visible al empezar', obj.visible, (v) => {
       obj.visible = v; commit(); renderAll();
     }));
-    addField(body, 'Velocidad de animación (fps)', mkNum(obj.fps, (v) => {
-      obj.fps = U.clamp(v, 1, 30); commit(); renderAll();
-    }, { min: 1, max: 30 }), 'Cada objeto recorre sus 4 celdas de animación en bucle.');
+
+    section(body, 'Animaciones');
+    const animList = el('div', { class: 'anim-list' });
+    MI.objectAnimations(obj).forEach((a, i) => {
+      const b = el('button', {
+        class: 'anim-chip' + (i === state.animIndex ? ' active' : ''),
+        type: 'button',
+        text: (i + 1) + '. ' + a.name + ' · ' + MI.animSpeed(a.speed).label
+      });
+      b.addEventListener('click', () => {
+        state.animIndex = i;
+        state.animFrame = 0;
+        setTab('anim');
+      });
+      animList.appendChild(b);
+    });
+    body.appendChild(animList);
+    body.appendChild(el('p', { class: 'field-note', text: 'Cada animación tiene nombre propio (máx. 12 caracteres), 4 celdas y velocidad de 1 a 5. Pulsa una para editarla.' }));
+    const animRow = el('div', { class: 'btn-row', style: { marginTop: '6px' } });
+    animRow.appendChild(smallBtn('🎞️ Editar animaciones', () => setTab('anim'), 'btn-cyan'));
+    animRow.appendChild(smallBtn('💾 Guardar en Mis objetos', () => openSaveObjectModal(obj), 'btn-paper'));
+    body.appendChild(animRow);
 
     section(body, 'Capa');
     const layerRow = el('div', { class: 'btn-row' });
@@ -1329,6 +1461,80 @@
   }
 
   /* ----------------------------- pestaña JUEGO ----------------------------- */
+  function renderGoalConditions(body) {
+    ensureSwitchGoal(state.game.goal);
+    const goal = state.game.goal;
+    const groups = goal.groups;
+
+    body.appendChild(el('p', { class: 'field-note', style: { marginBottom: '8px' }, text: 'Ganas cuando se cumple una de estas condiciones (O). Dentro de cada condición, todos los interruptores deben estar ON (Y). Puedes crear hasta ' + MI.MAX_GOAL_GROUPS + '.' }));
+
+    if (!state.game.objects.length) {
+      body.appendChild(el('p', { class: 'rule-warn', text: '⚠ Crea al menos un objeto para usarlo como interruptor.' }));
+    }
+
+    const list = el('div', { class: 'goal-conditions' });
+    groups.forEach((group, gi) => {
+      if (gi > 0) list.appendChild(el('div', { class: 'goal-or', text: 'O' }));
+      const card = el('div', { class: 'goal-condition' });
+      const head = el('div', { class: 'goal-condition-head' }, [
+        el('span', { class: 'goal-condition-title', text: 'Condición ' + (gi + 1) }),
+        el('span', { class: 'goal-condition-hint', text: group.length ? (group.length === 1 ? '1 interruptor ON' : group.length + ' interruptores ON') : 'Vacía' })
+      ]);
+      if (groups.length > 1) {
+        head.appendChild(el('button', {
+          class: 'goal-condition-del', type: 'button', text: '✕', title: 'Quitar condición',
+          onclick: () => { groups.splice(gi, 1); commit(); renderAll(); }
+        }));
+      }
+      card.appendChild(head);
+
+      if (!group.length) {
+        card.appendChild(el('p', { class: 'field-note', text: 'Elige al menos un objeto. Las condiciones vacías no cuentan.' }));
+      } else {
+        const chips = el('div', { class: 'goal-chips' });
+        group.forEach((id, oi) => {
+          if (oi > 0) chips.appendChild(el('span', { class: 'goal-and', text: 'Y' }));
+          const o = objById(id);
+          const chip = el('span', { class: 'goal-chip' }, [
+            el('span', { text: (o ? o.name : 'Objeto eliminado') + ' · ON' }),
+            el('button', {
+              class: 'goal-chip-del', type: 'button', text: '✕', title: 'Quitar objeto de la condición',
+              onclick: () => { group.splice(oi, 1); commit(); renderAll(); }
+            })
+          ]);
+          chips.appendChild(chip);
+        });
+        card.appendChild(chips);
+      }
+
+      const avail = state.game.objects.filter(o => group.indexOf(o.id) < 0);
+      if (avail.length) {
+        card.appendChild(mkSelect(
+          [{ value: '', label: '＋ Añadir objeto a la condición…', disabled: true }]
+            .concat(avail.map(o => ({ value: o.id, label: o.name }))),
+          '',
+          (v) => { if (!v) return; group.push(v); commit(); renderAll(); },
+          'goal-add-object'
+        ));
+      }
+      list.appendChild(card);
+    });
+    body.appendChild(list);
+
+    if (groups.length < MI.MAX_GOAL_GROUPS) {
+      body.appendChild(el('button', {
+        class: 'add-goal-condition', type: 'button', text: '＋ Añadir condición (O)',
+        onclick: () => { groups.push([]); commit(); renderAll(); }
+      }));
+    }
+
+    const active = groups.filter(gr => gr.length);
+    body.appendChild(el('p', { class: 'field-note', style: { marginTop: '8px' }, text: active.length
+      ? (active.length === 1 ? 'Hay 1 condición activa. ' : 'Hay ' + active.length + ' condiciones activas. ') + 'Si no se cumple ninguna al acabar el tiempo, pierdes.'
+      : 'Sin condiciones configuradas, el microjuego se gana sobreviviendo hasta el final del tiempo.' }));
+    body.appendChild(el('p', { class: 'field-note', text: 'Los objetos empiezan con el interruptor en OFF. Crea reglas en la pestaña Lógica que lo enciendan.' }));
+  }
+
   function renderGameTab(body) {
     body.appendChild(el('p', { class: 'field-note', text: 'Ajustes generales del microjuego. La duración también se cambia en la barra superior.' }));
 
@@ -1394,45 +1600,58 @@
       onchange: () => { commit(); renderAll(); }
     }));
 
-    section(body, 'Objetivo de victoria');
-    addField(body, '¿Cómo se gana?', mkSelect(Object.keys(MI.GOALS).map(k => ({ value: k, label: MI.GOALS[k] })), state.game.goal.type, (v) => {
-      state.game.goal.type = v;
-      if (v === 'switch' || v === 'touch' || v === 'reach') {
-        if (!objById(state.game.goal.objectId)) state.game.goal.objectId = state.game.objects[0] ? state.game.objects[0].id : null;
-      }
-      if (v === 'reach' && !zoneById(state.game.goal.zoneId) && state.game.zones[0]) {
-        state.game.goal.zoneId = state.game.zones[0].id;
-      }
-      commit(); renderAll();
-    }), state.game.goal.type === 'survive'
-      ? 'Sobrevive hasta que se acabe el tiempo sin activar ninguna derrota.'
-      : 'La partida sigue hasta el final del tiempo; este objetivo determina si ganas.');
-
-    if (state.game.goal.type !== 'survive') {
-      addField(body, 'Objeto del objetivo', mkSelect(state.game.objects.map(o => ({ value: o.id, label: o.name })), state.game.goal.objectId, (v) => {
-        state.game.goal.objectId = v; commit(); renderAll();
+    section(body, 'Textos del escenario');
+    body.appendChild(el('p', { class: 'field-note', style: { marginBottom: '7px' }, text: 'Los textos fijos se dibujan siempre, debajo de los objetos. También puedes crearlos desde la herramienta «T Texto» o con la acción «Añadir texto».' }));
+    const textList = el('div', { class: 'text-list' });
+    (state.game.texts || []).forEach(t => {
+      const row = el('div', { class: 'text-list-item' });
+      const swatch = el('span', { class: 'text-swatch', style: { background: t.color } });
+      row.appendChild(swatch);
+      row.appendChild(el('span', { class: 'text-list-name', text: t.text }));
+      row.appendChild(el('span', { class: 'text-list-meta', text: t.size + ' px · ' + (MI.TEXT_ALIGNS.find(a => a.value === t.align) || {}).label }));
+      row.appendChild(el('button', {
+        class: 'mini-btn', type: 'button', title: 'Editar texto', text: '✎',
+        onclick: () => openTextEditor(t.id)
       }));
-    }
-    if (state.game.goal.type === 'reach') {
-      if (!state.game.zones.length) {
-        body.appendChild(el('p', { class: 'field-note', text: 'Necesitas una zona de meta.' }));
-        body.appendChild(smallBtn('Crear zona de meta', () => {
-          const z = createZone({ x: 0, y: 24, w: MI.W, h: 120 }, 'Meta');
-          state.game.goal.zoneId = z.id;
+      row.appendChild(el('button', {
+        class: 'mini-btn', type: 'button', title: 'Eliminar texto', text: '🗑',
+        onclick: () => {
+          const i = state.game.texts.indexOf(t);
+          if (i >= 0) state.game.texts.splice(i, 1);
           commit(); renderAll();
-        }, 'btn-cyan'));
-      } else {
-        addField(body, 'Zona de meta', mkSelect(state.game.zones.map(z => ({ value: z.id, label: z.name })), state.game.goal.zoneId, (v) => {
-          state.game.goal.zoneId = v; commit(); renderAll();
-        }));
-      }
+          MI.toast('Texto eliminado');
+        }
+      }));
+      textList.appendChild(row);
+    });
+    if (!state.game.texts.length) {
+      textList.appendChild(el('p', { class: 'field-note', text: 'Todavía no hay textos fijos.' }));
     }
+    body.appendChild(textList);
+    const textOps = el('div', { class: 'btn-row', style: { marginTop: '6px' } });
+    textOps.appendChild(smallBtn('T Añadir texto', () => {
+      if ((state.game.texts || []).length >= MI.MAX_TEXTS) {
+        MI.toast('Máximo ' + MI.MAX_TEXTS + ' textos por escenario', 'err');
+        return;
+      }
+      openTextEditor(null, { x: MI.W / 2, y: MI.H / 2 });
+    }, 'btn-cyan'));
+    textOps.appendChild(smallBtn('Colocar en el escenario', () => {
+      setTab('object');
+      setTool('text');
+      MI.toast('Haz clic en el escenario para colocar el texto');
+    }));
+    body.appendChild(textOps);
+
+    section(body, 'Objetivo de victoria');
+    renderGoalConditions(body);
 
     section(body, 'Resumen');
     const stats = el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } });
     [
       ['📦 Objetos', state.game.objects.length],
       ['🧠 Reglas', state.game.rules.length],
+      ['🔤 Textos', (state.game.texts || []).length],
       ['⏱️ Duración', state.game.duration ? U.msToSec(state.game.duration) + ' s' : '∞'],
       ['🎵 Música', (MI.audio.TRACKS[state.game.music] || {}).name || '—']
     ].forEach(([k, v]) => {
@@ -1449,6 +1668,140 @@
     io.appendChild(smallBtn('📥 Importar', () => $('#btn-import-editor').click()));
     body.appendChild(io);
   }
+
+  /* ----------------------------- textos del escenario ----------------------------- */
+  function openTextEditor(textId, at) {
+    const existing = textId ? textById(textId) : null;
+    const draft = existing
+      ? Object.assign({}, existing)
+      : {
+        id: U.uid('text'),
+        text: 'Texto',
+        x: Math.round(at && at.x != null ? at.x : MI.W / 2),
+        y: Math.round(at && at.y != null ? at.y : MI.H / 2),
+        size: 56,
+        font: 'display',
+        align: 'center',
+        color: '#ffd23f'
+      };
+
+    const body = el('div');
+    const preview = el('canvas', { width: 512, height: 288, class: 'text-preview' });
+    const pctx = preview.getContext('2d');
+
+    function paint() {
+      const W = preview.width, H = preview.height;
+      const k = W / MI.W;
+      pctx.clearRect(0, 0, W, H);
+      pctx.fillStyle = '#141c38';
+      pctx.fillRect(0, 0, W, H);
+      pctx.strokeStyle = 'rgba(255,255,255,.08)';
+      pctx.lineWidth = 1;
+      for (let x = 0; x <= W; x += W / 20) {
+        pctx.beginPath(); pctx.moveTo(x + .5, 0); pctx.lineTo(x + .5, H); pctx.stroke();
+      }
+      for (let y = 0; y <= H; y += H / 12) {
+        pctx.beginPath(); pctx.moveTo(0, y + .5); pctx.lineTo(W, y + .5); pctx.stroke();
+      }
+      pctx.save();
+      pctx.font = '900 ' + Math.max(8, draft.size * k) + 'px ' + MI.fontCss(draft.font);
+      pctx.textAlign = draft.align === 'left' ? 'left' : (draft.align === 'right' ? 'right' : 'center');
+      pctx.textBaseline = 'middle';
+      pctx.lineJoin = 'round';
+      pctx.lineWidth = Math.max(2, draft.size * k * 0.14);
+      pctx.strokeStyle = 'rgba(16,19,31,.92)';
+      pctx.strokeText(draft.text || 'Texto', draft.x * k, draft.y * k);
+      pctx.fillStyle = draft.color;
+      pctx.fillText(draft.text || 'Texto', draft.x * k, draft.y * k);
+      pctx.restore();
+      pctx.fillStyle = 'rgba(255,248,232,.55)';
+      pctx.font = 'bold 11px Consolas, monospace';
+      pctx.textAlign = 'right';
+      pctx.textBaseline = 'bottom';
+      pctx.fillText('Vista previa del escenario', W - 10, H - 8);
+    }
+
+    const content = el('textarea', { class: 'textarea', maxlength: '80', rows: '2', placeholder: 'Escribe el texto' });
+    content.value = draft.text;
+    content.addEventListener('input', () => { draft.text = content.value; paint(); });
+    addField(body, 'Texto (máximo 80 caracteres)', content);
+    body.appendChild(preview);
+
+    const row1 = el('div', { class: 'row row-2' });
+    row1.appendChild(el('div', { class: 'field' }, [
+      el('label', { text: 'Fuente' }),
+      mkSelect(MI.FONTS.map(f => ({ value: f.value, label: f.label })), draft.font, (v) => {
+        draft.font = v; paint();
+      })
+    ]));
+    row1.appendChild(el('div', { class: 'field' }, [
+      el('label', { text: 'Tamaño (px)' }),
+      mkNum(draft.size, (v) => {
+        draft.size = U.clamp(v, 10, 160);
+        paint();
+      }, { min: 10, max: 160, fallback: 56 })
+    ]));
+    body.appendChild(row1);
+
+    const row2 = el('div', { class: 'row row-2' });
+    row2.appendChild(el('div', { class: 'field' }, [
+      el('label', { text: 'Alineación' }),
+      mkSelect(MI.TEXT_ALIGNS, draft.align, (v) => {
+        draft.align = v; paint();
+      })
+    ]));
+    row2.appendChild(el('div', { class: 'field' }, [
+      el('label', { text: 'Color' }),
+      el('input', {
+        type: 'color', class: 'input', value: draft.color,
+        oninput: (e) => { draft.color = e.target.value; paint(); }
+      })
+    ]));
+    body.appendChild(row2);
+
+    const row3 = el('div', { class: 'row row-2' });
+    row3.appendChild(el('div', { class: 'field' }, [
+      el('label', { text: 'Posición X' }),
+      mkNum(draft.x, (v) => { draft.x = U.clamp(v, BOUNDS.x0, BOUNDS.x1); paint(); }, { min: BOUNDS.x0, max: BOUNDS.x1 })
+    ]));
+    row3.appendChild(el('div', { class: 'field' }, [
+      el('label', { text: 'Posición Y' }),
+      mkNum(draft.y, (v) => { draft.y = U.clamp(v, BOUNDS.y0, BOUNDS.y1); paint(); }, { min: BOUNDS.y0, max: BOUNDS.y1 })
+    ]));
+    body.appendChild(row3);
+    body.appendChild(el('p', { class: 'field-note', text: 'La alineación marca el punto de anclaje: izquierda, centro o derecha en la posición X.' }));
+
+    const footer = [];
+    if (existing) {
+      footer.push({
+        label: 'Eliminar', className: 'btn-danger', close: false,
+        onClick: () => {
+          const i = state.game.texts.indexOf(existing);
+          if (i >= 0) state.game.texts.splice(i, 1);
+          MI.modal.close();
+          commit(); renderAll();
+          MI.toast('Texto eliminado');
+        }
+      });
+    }
+    footer.push({ label: 'Cancelar', className: 'btn-paper' });
+    footer.push({
+      label: existing ? 'Guardar texto' : 'Añadir texto', className: 'btn-primary',
+      onClick: () => {
+        const clean = String(draft.text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        if (!clean) { MI.toast('Escribe algo de texto', 'err'); return false; }
+        draft.text = clean;
+        if (existing) Object.assign(existing, draft);
+        else state.game.texts.push(draft);
+        commit(); renderAll();
+        MI.toast(existing ? 'Texto actualizado' : 'Texto añadido al escenario', 'ok');
+      }
+    });
+
+    MI.modal.open({ title: existing ? 'Editar texto' : 'Añadir texto', wide: true, body, footer });
+    paint();
+  }
+  E.openTextEditor = openTextEditor;
 
   /* ----------------------------- editor de fondos ----------------------------- */
   function openBackgroundEditor() {
@@ -1665,9 +2018,15 @@
       );
     });
     state.game.rules = state.game.rules.filter(r => r.actions.length);
+    if (Array.isArray(state.game.goal.groups)) {
+      state.game.goal.groups.forEach(gr => {
+        const gi = gr.indexOf(id);
+        if (gi >= 0) gr.splice(gi, 1);
+      });
+    }
     if (state.game.goal.objectId === id) {
       state.game.goal.objectId = null;
-      state.game.goal.type = 'survive';
+      if (state.game.goal.type !== 'switches') state.game.goal.type = 'survive';
     }
     state.selectedObjectId = state.game.objects[0] ? state.game.objects[0].id : null;
     state.selectedZoneId = null;
@@ -1685,8 +2044,11 @@
     const idx = state.game.zones.findIndex(z => z.id === id);
     if (idx < 0) return;
     state.game.zones.splice(idx, 1);
+    const zoneTrigger = (t) => !!(t && t.zoneId === id);
     state.game.rules = state.game.rules.filter(r =>
-      r.trigger.zoneId !== id && !r.actions.some(a => a.zoneId === id)
+      !zoneTrigger(r.trigger) &&
+      !(r.extraTriggers || []).some(e => zoneTrigger(e.trigger)) &&
+      !r.actions.some(a => a.zoneId === id)
     );
     state.game.rules.forEach(r => { r.actions = r.actions.filter(a => a.zoneId !== id); });
     if (state.game.goal.zoneId === id) {
@@ -1699,14 +2061,43 @@
   }
 
   /* ----------------------------- guardar / probar / importar ----------------------------- */
-  function fixGoal() {
-    const g = state.game;
-    if (!g.goal) g.goal = { type: 'survive', objectId: null, zoneId: null };
-    if (['switch', 'touch', 'reach'].indexOf(g.goal.type) >= 0) {
-      if (!objById(g.goal.objectId)) g.goal.type = 'survive';
-      if (g.goal.type === 'reach' && !zoneById(g.goal.zoneId)) g.goal.type = 'survive';
+  function sanitizeGoalGroups(goal) {
+    if (!Array.isArray(goal.groups)) goal.groups = [];
+    const cleaned = [];
+    goal.groups.slice(0, MI.MAX_GOAL_GROUPS).forEach(gr => {
+      const ids = [];
+      (Array.isArray(gr) ? gr : []).forEach(id => {
+        if (objById(id) && ids.indexOf(id) < 0) ids.push(id);
+      });
+      cleaned.push(ids);
+    });
+    goal.groups = cleaned;
+  }
+
+  function ensureSwitchGoal(goal) {
+    if (!goal) return;
+    if (!Array.isArray(goal.groups)) goal.groups = [];
+    if (goal.type !== 'switches') {
+      // Conversión best-effort de objetivos antiguos: solo se conserva el
+      // objeto si alguna regla puede encender su interruptor.
+      if (!goal.groups.length && goal.objectId && objById(goal.objectId)) {
+        const id = goal.objectId;
+        const canTurnOn = goal.type === 'switch' || (state.game.rules || []).some(r =>
+          r.subject === id && (r.actions || []).some(a => a.type === 'switch' && a.value !== false &&
+            (a.objectId === 'self' || a.objectId === id))
+        );
+        if (canTurnOn) goal.groups.push([id]);
+      }
+      goal.type = 'switches';
     }
-    if (g.goal.type === 'survive') { g.goal.objectId = null; g.goal.zoneId = null; }
+    sanitizeGoalGroups(goal);
+    goal.objectId = null;
+    goal.zoneId = null;
+  }
+  E.ensureSwitchGoal = ensureSwitchGoal;
+
+  function fixGoal() {
+    ensureSwitchGoal(state.game.goal || (state.game.goal = { type: 'switches', groups: [], objectId: null, zoneId: null }));
   }
   E.fixGoal = fixGoal;
 
@@ -1745,7 +2136,12 @@
     }
     MI.store.setDraft({ game: U.deepClone(state.game), savedId: state.savedId, source: state.source });
     MI.audio.unlock();
-    MI.player.open(U.deepClone(state.game), { mode: 'preview', from: 'editor' });
+    MI.player.open(U.deepClone(state.game), {
+      mode: 'preview',
+      from: 'editor',
+      speed: state.previewSpeed,
+      showSwitches: true
+    });
   }
   E.test = testGame;
 
@@ -1791,7 +2187,7 @@
         </div>
         <div class="help-card">
           <h3>4 · Elige el objetivo</h3>
-          <p>En <strong>Juego</strong> decides cómo se gana: sobrevivir, activar un interruptor, tocar un objeto o llevar un objeto a una zona. El microjuego siempre termina al acabar el tiempo, ¡ganes o pierdas!</p>
+          <p>En <strong>Juego</strong> eliges qué interruptores deben estar ON para ganar. Dentro de una condición todos deben estar ON (<strong>Y</strong>); puedes crear varias condiciones y se cumple cualquiera de ellas (<strong>O</strong>). El microjuego siempre termina al acabar el tiempo, ¡ganes o pierdas!</p>
         </div>
       </div>
       <h3 style="font-family:var(--font-display);font-size:13px;margin:16px 0 7px">Activadores</h3>
@@ -1802,11 +2198,13 @@
         <div class="help-card trigger"><h3>Interruptor</h3><p>Cuando un objeto pasa a ON/OFF o mientras está ON/OFF. Todos empiezan en OFF.</p></div>
         <div class="help-card trigger"><h3>Tiempo</h3><p>En un punto exacto del tiempo total o durante un intervalo.</p></div>
         <div class="help-card trigger"><h3>Victoria / derrota</h3><p>En el instante de ganar, después de ganar, antes de ganar, o lo mismo con la derrota.</p></div>
+        <div class="help-card trigger"><h3>Varios activadores (Y / O)</h3><p>Pulsa <strong>＋ Añadir activador</strong> para combinar condiciones. Cada activador extra se une al anterior con <strong>Y</strong> (ambos) u <strong>O</strong> (cualquiera).</p></div>
       </div>
       <h3 style="font-family:var(--font-display);font-size:13px;margin:16px 0 7px">Acciones</h3>
       <div class="help-grid">
         <div class="help-card action"><h3>Movimiento</h3><p>Línea recta en 8 direcciones, hacia un punto u otro objeto, saltos, deambular (meneo, bola de billar, moscardón, balón), detenerse, cambiar posiciones y acercarse a otro objeto.</p></div>
         <div class="help-card action"><h3>Estado y efectos</h3><p>Derrota, sonido, interruptor ON/OFF, cambiar o detener animación, destello, confeti, temblor y congelar.</p></div>
+        <div class="help-card action"><h3>Orden de las acciones</h3><p>Se ejecutan de arriba abajo. Arrastra el asa <strong>⋮⋮</strong> o usa <strong>▲ ▼</strong> para cambiar el orden; el número azul indica cuál va primero.</p></div>
       </div>
       <p class="field-note" style="margin-top:14px">Consejo: si una acción necesita otro objeto o una zona y aún no existe, el editor te avisa o crea una zona estándar. Puedes repetir una regla activando «Repetir».</p>
     `;
@@ -1836,6 +2234,8 @@
     lose: 'Derrota',
     sound: 'Sonido',
     switch: 'Interruptor',
+    invisible: 'Objeto invisible',
+    text: 'Añadir texto',
     anim: 'Animación',
     effect: 'Efecto'
   };
@@ -1870,6 +2270,7 @@
       id: U.uid('rule'),
       subject,
       trigger,
+      extraTriggers: [],
       actions: [{ type: 'sound', soundId: 'blip', target: 'self' }],
       repeat: false,
       enabled: true
@@ -1884,35 +2285,109 @@
   }
 
   function renderLogicTab(body) {
+    const sel = selectedObject();
+    const subject = sel ? sel.id : 'stage';
+    const subjectName = sel ? sel.name : 'Escenario';
+    const rules = state.game.rules.filter(r => r.subject === subject);
+
     const head = el('div', { class: 'logic-head' }, [
       el('h3', {}, [
-        document.createTextNode('Lógica del juego'),
-        el('span', { class: 'count', text: String(state.game.rules.length) })
+        document.createTextNode('Lógica · ' + subjectName),
+        el('span', { class: 'count', text: String(rules.length) })
       ]),
-      smallBtn('＋ Nueva regla', () => addRule(), 'btn-primary')
+      smallBtn('＋ Nueva regla', () => addRule(subject), 'btn-primary')
     ]);
     body.appendChild(head);
+
+    const note = el('div', { class: 'logic-filter-note' }, [
+      el('span', { text: sel
+        ? 'Mostrando solo las reglas de «' + sel.name + '». Selecciona otro objeto para ver las suyas.'
+        : 'No hay ningún objeto seleccionado: se muestran las reglas del escenario.' })
+    ]);
+    if (state.ruleClipboard) {
+      note.appendChild(el('button', {
+        class: 'mini-btn paste-rule', type: 'button', text: '📋 Pegar regla…',
+        title: 'Pegar la regla copiada en otro objeto',
+        onclick: openPasteRule
+      }));
+    }
+    body.appendChild(note);
     body.appendChild(el('p', { class: 'field-note', style: { marginBottom: '10px' }, text: 'Cada regla se lee: cuando ocurre el activador → se ejecutan las acciones. El orden importa.' }));
 
-    if (!state.game.rules.length) {
+    if (!rules.length) {
       body.appendChild(el('div', { class: 'empty-logic' }, [
         el('div', { class: 'big', text: '🧠' }),
-        el('h4', { text: 'Todavía no hay reglas' }),
-        el('p', { text: 'Crea una regla como «Tocar este objeto → activar interruptor» o «Tiempo en 2 s → mover objeto».' }),
-        smallBtn('＋ Crear mi primera regla', () => addRule(), 'btn-primary')
+        el('h4', { text: sel ? 'Este objeto no tiene reglas' : 'El escenario no tiene reglas' }),
+        el('p', { text: sel
+          ? 'Crea una regla como «Tocar este objeto → activar interruptor» o copia una desde otro objeto.'
+          : 'Crea una regla como «Tiempo en 2 s → mover objeto».' }),
+        smallBtn('＋ Crear la primera regla', () => addRule(subject), 'btn-primary')
       ]));
       return;
     }
 
     const list = el('div', { class: 'rules' });
-    state.game.rules.forEach((rule, i) => list.appendChild(renderRuleCard(rule, i)));
+    rules.forEach((rule) => list.appendChild(renderRuleCard(rule, state.game.rules.indexOf(rule))));
     body.appendChild(list);
     body.appendChild(el('p', { class: 'field-note', style: { marginTop: '10px' }, text: 'Todos los interruptores empiezan en OFF. El microjuego termina al agotarse el tiempo aunque ya hayas ganado o perdido.' }));
   }
 
+  function openPasteRule() {
+    const clip = state.ruleClipboard;
+    if (!clip) {
+      MI.toast('Primero copia una regla con el botón ⧉', 'err');
+      return;
+    }
+    const triggers = [clip.trigger].concat((clip.extraTriggers || []).map(e => e.trigger));
+    const needsSubject = triggers.some(requiresSubject);
+    const options = state.game.objects.map(o => ({ value: o.id, label: o.name }));
+    if (!needsSubject) options.unshift({ value: 'stage', label: '🌐 Escenario' });
+    if (!options.length) {
+      MI.toast('Necesitas al menos un objeto para pegar la regla', 'err');
+      return;
+    }
+    let target = state.selectedObjectId || options[0].value;
+    if (needsSubject && target === 'stage') target = options[0].value;
+
+    const body = el('div');
+    const source = clip.subject && clip.subject !== 'stage' && objById(clip.subject)
+      ? objById(clip.subject).name
+      : 'Escenario';
+    body.appendChild(el('p', { class: 'field-note', text: 'Regla copiada de «' + source + '» con ' + triggers.length + ' activador(es) y ' + clip.actions.length + ' acción(es). Elige el objeto destino.' }));
+    addField(body, 'Objeto destino', mkSelect(options, target, (v) => { target = v; }));
+    if (needsSubject) {
+      body.appendChild(el('p', { class: 'field-note', text: 'Esta regla usa activadores que necesitan un objeto, así que no se puede pegar en el escenario.' }));
+    }
+    MI.modal.open({
+      title: 'Pegar regla en otro objeto',
+      narrow: true,
+      body,
+      footer: [
+        { label: 'Cancelar', className: 'btn-paper' },
+        {
+          label: 'Pegar regla', className: 'btn-primary',
+          onClick: () => {
+            const copy = U.deepClone(clip);
+            copy.id = U.uid('rule');
+            copy.subject = target;
+            state.game.rules.push(copy);
+            if (target !== 'stage') state.selectedObjectId = target;
+            state.selectedZoneId = null;
+            commit();
+            setTab('logic');
+            renderAll();
+            MI.toast('Regla pegada en «' + (target === 'stage' ? 'Escenario' : (objById(target) || {}).name) + '»', 'ok');
+          }
+        }
+      ]
+    });
+  }
+
   function renderRuleCard(rule, index) {
     const card = el('div', { class: 'rule-card' + (rule.enabled ? '' : ' disabled'), dataset: { ruleId: rule.id } });
-    const needs = requiresSubject(rule.trigger);
+    if (!Array.isArray(rule.extraTriggers)) rule.extraTriggers = [];
+    const cardTriggers = [rule.trigger].concat(rule.extraTriggers.map(e => e.trigger));
+    const needs = cardTriggers.some(t => requiresSubject(t));
 
     const top = el('div', { class: 'rule-top' });
     top.appendChild(el('span', { class: 'rule-index', text: '#' + (index + 1) }));
@@ -1920,8 +2395,15 @@
       .concat(state.game.objects.map(o => ({ value: o.id, label: o.name })));
     const subj = mkSelect(subjOpts, rule.subject, (v) => {
       rule.subject = v;
-      if (v === 'stage' && requiresSubject(rule.trigger)) {
-        rule.trigger = { type: 'time', mode: 'point', at: Math.round((state.game.duration || 4000) / 2) };
+      if (v !== 'stage') { state.selectedObjectId = v; state.selectedZoneId = null; }
+      if (v === 'stage') {
+        cardTriggers.forEach(t => {
+          if (requiresSubject(t)) {
+            const next = { type: 'time', mode: 'point', at: Math.round((state.game.duration || 4000) / 2) };
+            Object.keys(t).forEach(k => delete t[k]);
+            Object.assign(t, next);
+          }
+        });
       }
       commit(); renderAll();
     }, '', 'Objeto que recibe el activador');
@@ -1930,6 +2412,14 @@
     const en = el('input', { type: 'checkbox', checked: rule.enabled, title: 'Activar / desactivar regla', style: { accentColor: 'var(--lime)' } });
     en.addEventListener('change', () => { rule.enabled = en.checked; commit(); renderAll(); });
     top.appendChild(en);
+    top.appendChild(el('button', {
+      class: 'icon-mini', title: 'Copiar regla para pegarla en otro objeto', text: '⧉',
+      onclick: () => {
+        state.ruleClipboard = U.deepClone(rule);
+        MI.toast('Regla copiada. Selecciona el objeto destino y usa «Pegar regla».', 'ok');
+        renderInspector();
+      }
+    }));
     top.appendChild(el('button', {
       class: 'icon-mini', title: 'Eliminar regla', text: '🗑',
       onclick: () => {
@@ -1943,24 +2433,30 @@
 
     const body = el('div', { class: 'rule-body' });
 
-    /* ------------------------- activador ------------------------- */
+    /* ------------------------- activadores ------------------------- */
     const trigBlock = el('div', { class: 'rule-block trigger-block' });
     trigBlock.appendChild(el('div', { class: 'block-label' }, [
       el('span', { text: 'Cuando…' }),
-      el('span', { text: 'ACTIVADOR' })
+      el('span', { text: (rule.extraTriggers.length ? 'ACTIVADORES · Y / O' : 'ACTIVADOR') })
     ]));
-    const typeOpts = Object.keys(TRIGGER_LABELS).map(k => ({ value: k, label: TRIGGER_LABELS[k] }));
-    trigBlock.appendChild(mkSelect(typeOpts, rule.trigger.type, (v) => {
-      rule.trigger = defaultTrigger(v, rule.subject);
-      if (requiresSubject(rule.trigger) && rule.subject === 'stage') {
-        const first = state.game.objects[0];
-        if (first) rule.subject = first.id;
-      }
-      commit(); renderAll();
-    }));
-    const sub = el('div', { class: 'rule-sub' });
-    renderTriggerFields(rule, sub, needs);
-    trigBlock.appendChild(sub);
+    trigBlock.appendChild(renderTriggerItem(rule, rule.trigger, -1));
+    rule.extraTriggers.forEach((extra, i) => {
+      trigBlock.appendChild(renderTriggerItem(rule, extra.trigger, i));
+    });
+    if (rule.extraTriggers.length < MI.MAX_EXTRA_TRIGGERS) {
+      trigBlock.appendChild(el('button', {
+        class: 'add-trigger', type: 'button', text: '＋ Añadir activador (Y / O)',
+        onclick: () => {
+          const extra = { logic: 'and', trigger: defaultExtraTrigger(rule) };
+          if (requiresSubject(extra.trigger) && rule.subject === 'stage') {
+            const first = state.game.objects[0];
+            if (first) rule.subject = first.id;
+          }
+          rule.extraTriggers.push(extra);
+          commit(); renderAll();
+        }
+      }));
+    }
     body.appendChild(trigBlock);
 
     /* ------------------------- acciones ------------------------- */
@@ -1970,7 +2466,7 @@
       el('span', { text: 'ACCIONES' })
     ]));
     const actionsList = el('div', { class: 'rule-actions-list' });
-    rule.actions.forEach((action) => actionsList.appendChild(renderActionRow(rule, action)));
+    rule.actions.forEach((action, i) => actionsList.appendChild(renderActionRow(rule, action, i)));
     actBlock.appendChild(actionsList);
     actBlock.appendChild(el('button', {
       class: 'add-action', type: 'button', text: '＋ Añadir acción',
@@ -1995,17 +2491,19 @@
     if (needs && rule.subject === 'stage') {
       card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Este activador necesita un objeto como sujeto. Elige uno arriba.' }));
     }
-    if ((rule.trigger.type === 'touch' || rule.trigger.type === 'overlap')) {
-      if (rule.trigger.mode === 'object' && !objById(rule.trigger.objectId)) {
-        card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Elige otro objeto para el contacto.' }));
+    cardTriggers.forEach((t) => {
+      if (t.type === 'touch' || t.type === 'overlap') {
+        if (t.mode === 'object' && !objById(t.objectId)) {
+          card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Elige otro objeto para el contacto.' }));
+        }
+        if (t.mode === 'zone' && !zoneById(t.zoneId)) {
+          card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Dibuja o elige una zona para el contacto.' }));
+        }
       }
-      if (rule.trigger.mode === 'zone' && !zoneById(rule.trigger.zoneId)) {
-        card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Dibuja o elige una zona para el contacto.' }));
+      if (t.type === 'anim' && rule.subject === 'stage') {
+        card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Selecciona el objeto cuya animación quieres escuchar.' }));
       }
-    }
-    if (rule.trigger.type === 'anim' && rule.subject === 'stage') {
-      card.appendChild(el('p', { class: 'rule-warn', text: '⚠ Selecciona el objeto cuya animación quieres escuchar.' }));
-    }
+    });
     return card;
   }
 
@@ -2050,6 +2548,11 @@
       case 'lose': return { type: 'lose' };
       case 'sound': return { type: 'sound', soundId: 'blip' };
       case 'switch': return Object.assign(base, { objectId: 'self', value: true });
+      case 'invisible': return Object.assign(base, { value: true });
+      case 'text': return {
+        type: 'text', text: '¡Bien!', x: Math.round(MI.W / 2), y: Math.round(MI.H / 2),
+        size: 56, font: 'display', align: 'center', color: '#ffd23f', duration: 1600
+      };
       case 'anim': return Object.assign(base, { mode: 'set', frame: 0 });
       case 'effect': return { type: 'effect', effect: 'flash', duration: 500 };
       default: return { type: 'sound', soundId: 'blip' };
@@ -2057,17 +2560,68 @@
   }
 
   /* ------------------------- campos del activador ------------------------- */
-  function renderTriggerFields(rule, parent, needs) {
-    const t = rule.trigger;
+  function defaultExtraTrigger(rule) {
+    if (rule.subject === 'stage' && !state.game.objects.length) {
+      return { type: 'time', mode: 'point', at: Math.round((state.game.duration || 4000) / 2) };
+    }
+    return { type: 'tap', where: 'self' };
+  }
+
+  function renderTriggerItem(rule, trigger, index) {
+    const wrap = el('div', { class: 'trigger-item' + (index >= 0 ? ' trigger-extra' : '') });
+    if (index >= 0) {
+      const extra = rule.extraTriggers[index];
+      const row = el('div', { class: 'trigger-connector' });
+      row.appendChild(mkSelect([
+        { value: 'and', label: 'Y' },
+        { value: 'or', label: 'O' }
+      ], extra.logic, (v) => {
+        extra.logic = v === 'or' ? 'or' : 'and';
+        commit(); renderAll();
+      }, 'connector-select', 'Conector lógico entre activadores'));
+      row.appendChild(el('span', {
+        class: 'trigger-connector-note',
+        text: index === 0 ? 'además de lo anterior…' : 'y con el activador anterior…'
+      }));
+      row.appendChild(el('button', {
+        class: 'trigger-del', type: 'button', text: '✕', title: 'Quitar activador',
+        onclick: () => {
+          rule.extraTriggers.splice(index, 1);
+          commit(); renderAll();
+        }
+      }));
+      wrap.appendChild(row);
+    } else {
+      wrap.appendChild(el('span', { class: 'trigger-tag', text: 'Activador principal' }));
+    }
+
+    const typeOpts = Object.keys(TRIGGER_LABELS).map(k => ({ value: k, label: TRIGGER_LABELS[k] }));
+    wrap.appendChild(mkSelect(typeOpts, trigger.type, (v) => {
+      const next = defaultTrigger(v, rule.subject);
+      Object.keys(trigger).forEach(k => delete trigger[k]);
+      Object.assign(trigger, next);
+      if (requiresSubject(trigger) && rule.subject === 'stage') {
+        const first = state.game.objects[0];
+        if (first) rule.subject = first.id;
+      }
+      commit(); renderAll();
+    }, '', 'Tipo de activador'));
+    const sub = el('div', { class: 'rule-sub' });
+    renderTriggerFields(rule, sub, requiresSubject(trigger), trigger);
+    wrap.appendChild(sub);
+    return wrap;
+  }
+
+  function renderTriggerFields(rule, parent, needs, trig) {
+    const t = trig || rule.trigger;
     const objects = state.game.objects;
     const currentSubject = rule.subject;
 
     if (t.type === 'tap') {
-      parent.appendChild(mkSelect([
-        { value: 'self', label: 'Este objeto' },
-        { value: 'stage', label: 'Cualquier punto del escenario' }
-      ], t.where, (v) => {
-        rule.trigger.where = v;
+      const options = [{ value: 'stage', label: 'Cualquier punto del escenario' }];
+      if (rule.subject !== 'stage') options.push({ value: 'self', label: 'Este objeto' });
+      parent.appendChild(mkSelect(options, t.where, (v) => {
+        t.where = v;
         if (v === 'self' && rule.subject === 'stage' && objects[0]) rule.subject = objects[0].id;
         commit(); renderAll();
       }));
@@ -2078,9 +2632,9 @@
         { value: 'object', label: 'Otro objeto', disabled: !others.length },
         { value: 'zone', label: 'Una zona', disabled: !state.game.zones.length }
       ], t.mode, (v) => {
-        rule.trigger.mode = v;
-        if (v === 'object') rule.trigger.objectId = others[0] ? others[0].id : null;
-        if (v === 'zone') rule.trigger.zoneId = state.game.zones[0] ? state.game.zones[0].id : null;
+        t.mode = v;
+        if (v === 'object') t.objectId = others[0] ? others[0].id : null;
+        if (v === 'zone') t.zoneId = state.game.zones[0] ? state.game.zones[0].id : null;
         commit(); renderAll();
       }));
       if (t.mode === 'object') {
@@ -2088,11 +2642,11 @@
           parent.appendChild(el('p', { class: 'field-note', text: 'No hay otros objetos para elegir. Esta opción está desactivada.' }));
         } else {
           parent.appendChild(mkSelect(others.map(o => ({ value: o.id, label: o.name })), t.objectId, (v) => {
-            rule.trigger.objectId = v; commit(); renderAll();
+            t.objectId = v; commit(); renderAll();
           }));
         }
       } else {
-        parent.appendChild(zonePicker(t.zoneId, (id) => { rule.trigger.zoneId = id; }));
+        parent.appendChild(zonePicker(t.zoneId, (id) => { t.zoneId = id; }));
         parent.appendChild(el('p', { class: 'field-note', text: t.type === 'touch' ? 'Se activa al tocar el borde de la zona.' : 'Se activa al solaparse con la zona.' }));
       }
 
@@ -2101,11 +2655,11 @@
         { value: 'specific', label: 'Se muestra una animación concreta' },
         { value: 'end', label: 'Si la animación finaliza' }
       ], t.mode, (v) => {
-        rule.trigger.mode = v; commit(); renderAll();
+        t.mode = v; commit(); renderAll();
       }));
       if (t.mode === 'specific') {
         parent.appendChild(mkSelect([0, 1, 2, 3].map(i => ({ value: i, label: 'Celda ' + (i + 1) })), t.frame, (v) => {
-          rule.trigger.frame = Number(v); commit(); renderAll();
+          t.frame = Number(v); commit(); renderAll();
         }));
       }
 
@@ -2114,7 +2668,7 @@
         { value: 'point', label: 'En un punto del tiempo' },
         { value: 'interval', label: 'Durante un intervalo' }
       ], t.mode, (v) => {
-        rule.trigger.mode = v; commit(); renderAll();
+        t.mode = v; commit(); renderAll();
       }));
       if (t.mode === 'point') {
         parent.appendChild(rangeControl(t, 'at', 'Momento'));
@@ -2128,7 +2682,9 @@
     } else if (t.type === 'switch') {
       const opts = [{ value: 'self', label: 'Este objeto' }].concat(objects.map(o => ({ value: o.id, label: o.name })));
       parent.appendChild(mkSelect(opts, t.objectId, (v) => {
-        rule.trigger.objectId = v; commit(); renderAll();
+        t.objectId = v;
+        if (v === 'self' && rule.subject === 'stage' && objects[0]) rule.subject = objects[0].id;
+        commit(); renderAll();
       }));
       parent.appendChild(mkSelect([
         { value: 'turnOn', label: 'El interruptor pasa a ON' },
@@ -2136,7 +2692,7 @@
         { value: 'turnOff', label: 'El interruptor pasa a OFF' },
         { value: 'isOff', label: 'El interruptor está OFF' }
       ], t.mode, (v) => {
-        rule.trigger.mode = v; commit(); renderAll();
+        t.mode = v; commit(); renderAll();
       }));
 
     } else if (t.type === 'result') {
@@ -2148,7 +2704,7 @@
         { value: 'afterLose', label: 'Después de perder' },
         { value: 'beforeLose', label: 'Antes de perder' }
       ], t.mode, (v) => {
-        rule.trigger.mode = v; commit(); renderAll();
+        t.mode = v; commit(); renderAll();
       }));
     }
   }
@@ -2245,8 +2801,78 @@
     return wrap;
   }
 
-  function renderActionRow(rule, action) {
-    const wrap = el('div', { class: 'action-item' });
+  function moveAction(rule, from, to) {
+    if (from === to || to < 0 || to >= rule.actions.length) return;
+    const moved = rule.actions.splice(from, 1)[0];
+    rule.actions.splice(to, 0, moved);
+    commit(); renderAll();
+  }
+
+  function clearActionDrop() {
+    const nodes = document.querySelectorAll('.action-item.drop-before, .action-item.drop-after');
+    for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove('drop-before', 'drop-after');
+  }
+
+  function bindActionDrag(wrap, rule, index) {
+    const grip = wrap.querySelector('.action-grip');
+    if (!grip) return;
+    grip.addEventListener('dragstart', (e) => {
+      if (rule.actions.length < 2) { e.preventDefault(); return; }
+      state.actionDrag = { rule, from: index };
+      wrap.classList.add('dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setData('text/plain', String(index));
+          e.dataTransfer.setDragImage(wrap, 16, 16);
+        } catch (err) { /* algunos navegadores no permiten la imagen */ }
+      }
+    });
+    grip.addEventListener('dragend', () => {
+      wrap.classList.remove('dragging');
+      clearActionDrop();
+      state.actionDrag = null;
+    });
+    wrap.addEventListener('dragover', (e) => {
+      const drag = state.actionDrag;
+      if (!drag || drag.rule !== rule) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      const r = wrap.getBoundingClientRect();
+      const after = (e.clientY - r.top) > r.height / 2;
+      clearActionDrop();
+      wrap.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    wrap.addEventListener('dragleave', () => {
+      wrap.classList.remove('drop-before', 'drop-after');
+    });
+    wrap.addEventListener('drop', (e) => {
+      const drag = state.actionDrag;
+      if (!drag || drag.rule !== rule) return;
+      e.preventDefault();
+      const r = wrap.getBoundingClientRect();
+      const after = (e.clientY - r.top) > r.height / 2;
+      let to = index + (after ? 1 : 0);
+      clearActionDrop();
+      if (drag.from < to) to -= 1;
+      state.actionDrag = null;
+      moveAction(rule, drag.from, to);
+    });
+  }
+
+  function renderActionRow(rule, action, index) {
+    const wrap = el('div', { class: 'action-item', dataset: { actionIndex: String(index) } });
+
+    const num = el('span', { class: 'action-num', text: String(index + 1), title: 'Orden de ejecución' });
+    wrap.appendChild(num);
+
+    const grip = el('button', {
+      class: 'action-grip', type: 'button', text: '⋮⋮',
+      title: rule.actions.length > 1 ? 'Arrastra para cambiar el orden' : 'Añade otra acción para reordenar',
+      draggable: rule.actions.length > 1
+    });
+    wrap.appendChild(grip);
+
     const fields = el('div', { class: 'action-fields' });
 
     const typeOpts = Object.keys(ACTION_LABELS).map(k => ({ value: k, label: ACTION_LABELS[k] }));
@@ -2270,7 +2896,19 @@
     renderActionFields(rule, action, detail);
     fields.appendChild(detail);
     wrap.appendChild(fields);
-    wrap.appendChild(el('button', {
+
+    const tools = el('div', { class: 'action-tools' });
+    tools.appendChild(el('button', {
+      class: 'action-move', type: 'button', text: '▲', title: 'Subir acción',
+      disabled: index === 0,
+      onclick: () => moveAction(rule, index, index - 1)
+    }));
+    tools.appendChild(el('button', {
+      class: 'action-move', type: 'button', text: '▼', title: 'Bajar acción',
+      disabled: index === rule.actions.length - 1,
+      onclick: () => moveAction(rule, index, index + 1)
+    }));
+    tools.appendChild(el('button', {
       class: 'action-del', type: 'button', text: '✕', title: 'Quitar acción',
       onclick: () => {
         const i = rule.actions.indexOf(action);
@@ -2278,7 +2916,29 @@
         commit(); renderAll();
       }
     }));
+    wrap.appendChild(tools);
+
+    bindActionDrag(wrap, rule, index);
     return wrap;
+  }
+
+  // Selector de velocidad de movimiento por niveles (1 lento · 5 rápido).
+  // Internamente se guarda también el valor en px/s para el motor.
+  function speedSelect(action, fallbackLevel) {
+    const level = action.speedLevel != null
+      ? U.clamp(Math.round(Number(action.speedLevel)), 1, 5)
+      : MI.moveSpeedLevel(action.speed);
+    return mkSelect(
+      MI.MOVE_SPEEDS.map(s => ({ value: s.value, label: s.label })),
+      level || fallbackLevel || 3,
+      (v) => {
+        action.speedLevel = U.clamp(Math.round(Number(v)), 1, 5);
+        action.speed = MI.moveSpeed(action.speedLevel);
+        commit(); renderAll();
+      },
+      '',
+      'Velocidad de movimiento (1 = más lento, 5 = más rápido)'
+    );
   }
 
   function actorWarning(rule, action, parent) {
@@ -2290,7 +2950,7 @@
   function renderActionFields(rule, action, parent) {
     const t = action.type;
 
-    if (t !== 'lose' && t !== 'sound' && t !== 'effect') {
+    if (t !== 'lose' && t !== 'sound' && t !== 'effect' && t !== 'text' && t !== 'switch') {
       actorWarning(rule, action, parent);
       parent.appendChild(el('div', { class: 'rule-inline' }, [
         el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Objeto' }),
@@ -2443,6 +3103,7 @@
       }
       case 'switch': {
         const opts = [{ value: 'self', label: 'Este objeto' }].concat(state.game.objects.map(o => ({ value: o.id, label: o.name })));
+        parent.appendChild(el('span', { class: 'micro-label', text: 'Interruptor de' }));
         parent.appendChild(mkSelect(opts, action.objectId || 'self', (v) => {
           action.objectId = v; commit(); renderAll();
         }));
@@ -2452,6 +3113,53 @@
         ], action.value ? 'on' : 'off', (v) => {
           action.value = v === 'on'; commit(); renderAll();
         }, '', 'Nuevo estado del interruptor'));
+        break;
+      }
+      case 'invisible': {
+        parent.appendChild(mkSelect([
+          { value: 'hide', label: 'Ocultar el objeto' },
+          { value: 'show', label: 'Volver a mostrar el objeto' }
+        ], action.value === false ? 'show' : 'hide', (v) => {
+          action.value = v !== 'show';
+          commit(); renderAll();
+        }));
+        parent.appendChild(el('p', { class: 'field-note', text: 'Mientras está invisible no se puede tocar ni recibe movimientos ni cambios de animación. Su interruptor ON/OFF se conserva.' }));
+        break;
+      }
+      case 'text': {
+        const area = el('textarea', { class: 'textarea', rows: '2', maxlength: '80', placeholder: 'Texto que aparece en el escenario' });
+        area.value = action.text || '';
+        area.addEventListener('input', () => { action.text = area.value; });
+        area.addEventListener('change', () => { action.text = area.value.slice(0, 80); commit(); });
+        parent.appendChild(el('span', { class: 'micro-label', text: 'Texto' }));
+        parent.appendChild(area);
+        const styleRow = el('div', { class: 'rule-inline', style: { marginTop: '5px' } });
+        styleRow.appendChild(mkSelect(MI.FONTS.map(f => ({ value: f.value, label: f.label })), action.font, (v) => {
+          action.font = v; commit(); renderAll();
+        }));
+        styleRow.appendChild(mkNum(action.size, (v) => {
+          action.size = U.clamp(v, 10, 160); commit(); renderAll();
+        }, { cls: 'num', min: 10, max: 160, fallback: 56 }));
+        styleRow.appendChild(el('span', { class: 'unit', text: 'px' }));
+        parent.appendChild(styleRow);
+        const alignRow = el('div', { class: 'rule-inline', style: { marginTop: '5px' } });
+        alignRow.appendChild(mkSelect(MI.TEXT_ALIGNS, action.align, (v) => {
+          action.align = v; commit(); renderAll();
+        }));
+        alignRow.appendChild(el('input', {
+          type: 'color', class: 'input', title: 'Color del texto', value: action.color,
+          style: { flex: '0 0 40px', padding: '2px' },
+          onchange: (e) => { action.color = e.target.value; commit(); renderAll(); }
+        }));
+        parent.appendChild(alignRow);
+        parent.appendChild(el('span', { class: 'micro-label', text: 'Punto de aparición (centro)' }));
+        parent.appendChild(pointControl(rule, action, 'centro del texto'));
+        parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '5px' } }, [
+          el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Duración' }),
+          mkNum(action.duration, (v) => { action.duration = U.clamp(v, 0, 10000); commit(); renderAll(); }, { cls: 'num', min: 0, max: 10000, fallback: 1600 }),
+          el('span', { class: 'unit', text: 'ms' })
+        ]));
+        parent.appendChild(el('p', { class: 'field-note', text: '0 ms mantiene el texto hasta el final del microjuego.' }));
         break;
       }
       case 'anim': {
