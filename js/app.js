@@ -449,7 +449,7 @@
         </div>
         <div class="help-card">
           <h3>✏️ Editor</h3>
-          <p>Crea objetos con 4 celdas de animación, dibuja zonas y encadena reglas visuales: <em>activador → acciones</em>. No hace falta escribir código.</p>
+          <p>Crea objetos con 4 animaciones (nombre, 4 celdas y velocidad de 1 a 5), dibuja zonas y encadena reglas visuales: <em>activador → acciones</em>. Puedes guardar tus propios objetos en <strong>Mis objetos</strong>. No hace falta escribir código.</p>
         </div>
         <div class="help-card">
           <h3>🔘 Interruptores</h3>
@@ -470,6 +470,10 @@
         <div class="help-card">
           <h3>📋 Reglas por objeto</h3>
           <p>La pestaña <strong>Lógica</strong> muestra solo las reglas del objeto seleccionado. Copia una regla con <strong>⧉</strong> y pégala en otro objeto eligiendo el destino.</p>
+        </div>
+        <div class="help-card">
+          <h3>🎒 Mis objetos</h3>
+          <p>En la pestaña <strong>Animación</strong>, pulsa <strong>Guardar este objeto</strong> para conservarlo en el navegador con sus 4 animaciones. Al añadir un objeto, elige uno de <strong>Mis objetos</strong> para reutilizarlo en cualquier microjuego.</p>
         </div>
         <div class="help-card">
           <h3>💾 Guardar y compartir</h3>

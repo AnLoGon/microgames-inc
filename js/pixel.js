@@ -11,10 +11,13 @@
 
   const P = MI.pixelEditor = {};
 
-  P.open = function (obj, frameIndex, onClose) {
+  P.open = function (obj, animIndex, frameIndex, onClose) {
     if (!obj) return;
+    const animations = MI.objectAnimations(obj);
+    let animIdx = U.clamp(animIndex | 0, 0, 3);
     const frameSeed = U.clamp(frameIndex | 0, 0, 3);
     const state = {
+      anim: animIdx,
       frame: frameSeed,
       tool: 'pencil',
       color: 1,
@@ -28,30 +31,40 @@
       showGrid: true
     };
 
-    let grid = MI.sprites.gridFrom(obj.anims[state.frame] || MI.sprites.empty());
+    function anim() { return animations[animIdx] || animations[0]; }
+    function frames() { return anim().frames; }
+    function frameData(i) {
+      const f = frames();
+      return f[i] || (f[0] || MI.sprites.empty());
+    }
+
+    let grid = MI.sprites.gridFrom(frameData(state.frame));
 
     function currentData() {
       return MI.sprites.fromGrid(grid);
     }
 
     function applyGrid() {
-      obj.anims[state.frame] = currentData();
+      frames()[state.frame] = currentData();
       state.changed = true;
       redraw();
     }
 
     function pushHistory() {
       state.history = state.history.slice(0, state.hIndex + 1);
-      state.history.push({ frame: state.frame, data: obj.anims[state.frame] });
+      state.history.push({ anim: animIdx, frame: state.frame, data: frameData(state.frame) });
       if (state.history.length > 50) state.history.shift();
       state.hIndex = state.history.length - 1;
     }
 
     function restore(entry) {
+      animIdx = entry.anim;
+      state.anim = entry.anim;
       state.frame = entry.frame;
-      obj.anims[state.frame] = entry.data;
+      frames()[state.frame] = entry.data;
       grid = MI.sprites.gridFrom(entry.data);
       state.changed = true;
+      syncAnims();
       syncFrames();
       redraw();
       updateThumbs();
@@ -125,7 +138,7 @@
       b.appendChild(c);
       b.addEventListener('click', () => {
         state.frame = i;
-        grid = MI.sprites.gridFrom(obj.anims[i]);
+        grid = MI.sprites.gridFrom(frameData(i));
         syncFrames();
         redraw();
         updateThumbs();
@@ -134,6 +147,25 @@
       frameCanvases.push(c);
       framesWrap.appendChild(b);
     }
+
+    const animsWrap = el('div', { class: 'pixel-anims' });
+    const animBtns = [];
+    animations.forEach((a, i) => {
+      const b = el('button', { class: 'pf anim-name' + (i === animIdx ? ' active' : ''), type: 'button', title: a.name, text: a.name });
+      b.addEventListener('click', () => {
+        animIdx = i;
+        state.anim = i;
+        state.frame = 0;
+        grid = MI.sprites.gridFrom(frameData(0));
+        syncAnims();
+        syncFrames();
+        redraw();
+        updateThumbs();
+      });
+      animBtns.push(b);
+      animsWrap.appendChild(b);
+    });
+    const framesLabel = el('div', { class: 'micro-label', text: 'Celdas de «' + anim().name + '»' });
 
     const shapesWrap = el('div', { class: 'shape-list' });
     MI.sprites.keys().forEach(key => {
@@ -221,7 +253,11 @@
 
     const side = el('div', { class: 'pixel-side' }, [
       el('div', {}, [
-        el('div', { class: 'micro-label', text: 'Celdas de animación' }),
+        el('div', { class: 'micro-label', text: 'Animación' }),
+        animsWrap
+      ]),
+      el('div', {}, [
+        framesLabel,
         framesWrap
       ]),
       el('div', {}, [
@@ -252,7 +288,7 @@
     const body = el('div', { class: 'pixel-editor' }, [left, side]);
 
     MI.modal.open({
-      title: 'Editor de píxeles · ' + obj.name,
+      title: 'Editor de píxeles · ' + obj.name + ' · ' + anim().name,
       wide: true,
       dismissible: true,
       body,
@@ -261,13 +297,14 @@
           label: 'Copiar a las 4', className: 'btn-paper', close: false,
           onClick: () => {
             pushHistory();
-            const data = obj.anims[state.frame];
-            for (let i = 0; i < 4; i++) obj.anims[i] = data;
+            const data = frameData(state.frame);
+            const f = frames();
+            for (let i = 0; i < 4; i++) f[i] = data;
             state.changed = true;
             syncFrames();
             redraw();
             updateThumbs();
-            MI.toast('Animación copiada a las 4 celdas', 'ok');
+            MI.toast('Celda copiada a las 4 posiciones', 'ok');
           }
         },
         {
@@ -286,13 +323,18 @@
       }
     });
 
+    function syncAnims() {
+      animBtns.forEach((b, i) => b.classList.toggle('active', i === animIdx));
+      framesLabel.textContent = 'Celdas de «' + anim().name + '»';
+    }
+
     function syncFrames() {
       frameBtns.forEach((b, i) => b.classList.toggle('active', i === state.frame));
     }
 
     function updateThumbs() {
       for (let i = 0; i < 4; i++) {
-        MI.sprites.thumb(frameCanvases[i], obj.anims[i]);
+        MI.sprites.thumb(frameCanvases[i], frameData(i));
       }
     }
 
@@ -467,6 +509,7 @@
     });
 
     pushHistory();
+    syncAnims();
     syncFrames();
     updateThumbs();
     setZoom(state.zoom);

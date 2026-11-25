@@ -136,6 +136,8 @@
 
   function commit() {
     if (!state.game) return;
+    // Mantiene anims/fps antiguos sincronizados con la primera animación.
+    state.game.objects.forEach(o => MI.syncObjectAliases(o));
     state.history = state.history.slice(0, state.hIndex + 1);
     state.history.push(U.deepClone(state.game));
     if (state.history.length > 60) state.history.shift();
@@ -200,6 +202,7 @@
     state.pickDrag = null;
     state.zoneDrag = null;
     state.animClock = 0;
+    state.animIndex = 0;
     state.animFrame = 0;
     state.animPreview = null;
     state.history = [U.deepClone(state.game)];
@@ -754,6 +757,10 @@
 
   /* ----------------------------- selección ----------------------------- */
   function selectObject(id, doRender) {
+    if (id !== state.selectedObjectId) {
+      state.animIndex = 0;
+      state.animFrame = 0;
+    }
     state.selectedObjectId = id;
     state.selectedZoneId = null;
     // Al cambiar de objeto desde Lógica se mantiene Lógica para comparar,
@@ -1367,10 +1374,17 @@
       body.appendChild(el('div', { class: 'empty-logic' }, [
         el('div', { class: 'big', text: '🎞️' }),
         el('h4', { text: 'Sin objeto seleccionado' }),
-        el('p', { text: 'Selecciona un objeto para editar sus 4 celdas de animación.' })
+        el('p', { text: 'Selecciona un objeto para editar sus animaciones: nombre, 4 celdas y velocidad.' })
       ]));
       return;
     }
+
+    const animations = MI.objectAnimations(obj);
+    if (!(state.animIndex >= 0 && state.animIndex < animations.length)) state.animIndex = 0;
+    if (!(state.animFrame >= 0 && state.animFrame < 4)) state.animFrame = 0;
+    const anim = animations[state.animIndex];
+    const frames = anim.frames;
+    const speed = MI.animSpeed(anim.speed);
 
     const box = el('div', { class: 'obj-preview-row' });
     const prev = el('div', { class: 'obj-preview-big', style: { width: '96px', height: '96px' } });
@@ -1379,57 +1393,92 @@
     box.appendChild(prev);
     const info = el('div', { style: { flex: '1' } });
     info.appendChild(el('div', { class: 'micro-label', text: obj.name }));
-    info.appendChild(el('p', { class: 'field-note', text: '4 celdas editables. La animación recorre las celdas en bucle.' }));
-    info.appendChild(el('p', { class: 'field-note', text: 'Celda actual: ' + (state.animFrame + 1) + ' · ' + obj.fps + ' fps' }));
+    info.appendChild(el('div', { class: 'anim-title', text: (state.animIndex + 1) + '. ' + anim.name }));
+    info.appendChild(el('p', { class: 'field-note', text: 'Velocidad ' + speed.value + ' · ' + speed.fps + ' fps · 4 celdas en bucle' }));
     box.appendChild(info);
     body.appendChild(box);
     state.animPreview = { canvas: pc, objectId: obj.id };
 
-    section(body, 'Celdas de animación');
+    section(body, 'Animaciones del objeto');
+    const list = el('div', { class: 'anim-list' });
+    animations.forEach((a, i) => {
+      const b = el('button', {
+        class: 'anim-chip' + (i === state.animIndex ? ' active' : ''),
+        type: 'button',
+        text: (i + 1) + '. ' + a.name
+      });
+      b.addEventListener('click', () => {
+        state.animIndex = i;
+        state.animFrame = 0;
+        renderInspector();
+        drawStage();
+      });
+      list.appendChild(b);
+    });
+    body.appendChild(list);
+    body.appendChild(el('p', { class: 'field-note', text: 'Cada objeto tiene 4 animaciones. Puedes cambiar de animación también desde las acciones y los activadores.' }));
+
+    const nameInput = el('input', {
+      class: 'input', type: 'text', value: anim.name, maxlength: String(MI.MAX_ANIM_NAME),
+      title: 'Nombre de la animación (máximo ' + MI.MAX_ANIM_NAME + ' caracteres)'
+    });
+    nameInput.addEventListener('change', () => {
+      const clean = nameInput.value.replace(/\s+/g, ' ').trim().slice(0, MI.MAX_ANIM_NAME);
+      anim.name = clean || ('Animación ' + (state.animIndex + 1));
+      nameInput.value = anim.name;
+      commit(); renderAll();
+    });
+    addField(body, 'Nombre de la animación', nameInput, 'Máximo ' + MI.MAX_ANIM_NAME + ' caracteres.');
+
+    addField(body, 'Velocidad de la animación', mkSelect(
+      MI.ANIM_SPEEDS.map(s => ({ value: s.value, label: s.label })),
+      anim.speed,
+      (v) => { anim.speed = U.clamp(Math.round(Number(v)), 1, 5); commit(); renderAll(); },
+      '',
+      '1 = más lento · 5 = más rápido'
+    ), '1 es la más lenta y 5 la más rápida.');
+
+    section(body, 'Celdas de «' + anim.name + '»');
     const grid = el('div', { class: 'frame-grid' });
     for (let i = 0; i < 4; i++) {
       const cell = el('button', { class: 'frame-cell' + (i === state.animFrame ? ' active' : ''), title: 'Editar celda ' + (i + 1), type: 'button' });
       const c = el('canvas', { width: 16, height: 16 });
-      MI.sprites.thumb(c, obj.anims[i]);
+      MI.sprites.thumb(c, frames[i]);
       cell.appendChild(c);
       cell.appendChild(el('span', { class: 'frame-num', text: String(i + 1) }));
       cell.appendChild(el('span', { class: 'frame-edit', text: '✎' }));
       cell.addEventListener('click', () => {
         state.animFrame = i;
-        openPixelEditor(obj.id, i);
+        openPixelEditor(obj.id, state.animIndex, i);
       });
       grid.appendChild(cell);
     }
     body.appendChild(grid);
 
-    addField(body, 'Velocidad (fps)', mkNum(obj.fps, (v) => {
-      obj.fps = U.clamp(v, 1, 30); commit(); renderAll();
-    }, { min: 1, max: 30 }), 'Más fps = animación más rápida.');
-
     const ops = el('div', { class: 'btn-row' });
     ops.appendChild(smallBtn('⧉ Copiar celda', () => {
-      state.frameClipboard = obj.anims[state.animFrame];
+      state.frameClipboard = frames[state.animFrame];
       MI.toast('Celda copiada', 'ok');
     }));
     ops.appendChild(smallBtn('📋 Pegar', () => {
       if (!state.frameClipboard) { MI.toast('No hay ninguna celda copiada', 'err'); return; }
-      obj.anims[state.animFrame] = state.frameClipboard;
+      frames[state.animFrame] = state.frameClipboard;
       commit(); renderAll();
     }));
     body.appendChild(ops);
     const ops2 = el('div', { class: 'btn-row', style: { marginTop: '5px' } });
     ops2.appendChild(smallBtn('↔ Copiar a las 4', () => {
-      for (let i = 0; i < 4; i++) obj.anims[i] = obj.anims[state.animFrame];
+      for (let i = 0; i < 4; i++) frames[i] = frames[state.animFrame];
       commit(); renderAll();
-      MI.toast('Animación copiada a las 4 celdas', 'ok');
+      MI.toast('Celda copiada a las 4 posiciones', 'ok');
     }));
     ops2.appendChild(smallBtn('⌫ Limpiar', () => {
-      obj.anims[state.animFrame] = MI.sprites.empty();
+      frames[state.animFrame] = MI.sprites.empty();
       commit(); renderAll();
     }));
     body.appendChild(ops2);
 
-    body.appendChild(el('p', { class: 'field-note', text: 'Haz clic en cualquier celda para abrir el editor de píxeles.' }));
+    body.appendChild(el('p', { class: 'field-note', text: 'Haz clic en cualquier celda para editarla píxel a píxel.' }));
 
     section(body, 'Librería de sprites');
     const lib = el('div', { class: 'sprite-lib' });
@@ -1439,23 +1488,29 @@
       MI.sprites.thumb(c, MI.sprites.preset(key));
       b.appendChild(c);
       b.addEventListener('click', () => {
-        obj.anims[state.animFrame] = MI.sprites.preset(key);
+        frames[state.animFrame] = MI.sprites.preset(key);
         commit(); renderAll();
-        MI.toast('Sprite aplicado a la celda ' + (state.animFrame + 1), 'ok');
+        MI.toast('Sprite aplicado a la celda ' + (state.animFrame + 1) + ' de «' + anim.name + '»', 'ok');
       });
       lib.appendChild(b);
     });
     body.appendChild(lib);
 
     body.appendChild(el('div', { style: { marginTop: '10px' } }, [
-      smallBtn('🎨 Abrir editor de píxeles', () => openPixelEditor(obj.id, state.animFrame), 'btn-cyan')
+      smallBtn('🎨 Abrir editor de píxeles', () => openPixelEditor(obj.id, state.animIndex, state.animFrame), 'btn-cyan')
     ]));
+
+    section(body, 'Mis objetos');
+    body.appendChild(el('div', { class: 'btn-row' }, [
+      smallBtn('💾 Guardar este objeto', () => openSaveObjectModal(obj), 'btn-paper')
+    ]));
+    body.appendChild(el('p', { class: 'field-note', text: 'Guardar el objeto (con sus 4 animaciones) en el navegador para reutilizarlo en otros microjuegos.' }));
   }
 
-  function openPixelEditor(objId, frame) {
+  function openPixelEditor(objId, animIndex, frame) {
     const obj = objById(objId);
     if (!obj) return;
-    MI.pixelEditor.open(obj, frame, (changed) => {
+    MI.pixelEditor.open(obj, animIndex, frame, (changed) => {
       if (changed) { commit(); renderAll(); }
     });
   }
@@ -1894,10 +1949,51 @@
   /* ----------------------------- modales auxiliares ----------------------------- */
   function openAddObject() {
     const body = el('div');
-    body.appendChild(el('p', { class: 'field-note', style: { marginBottom: '10px' }, text: 'Elige un sprite para el nuevo objeto. Después podrás editar sus 4 celdas píxel a píxel.' }));
+    body.appendChild(el('p', { class: 'field-note', style: { marginBottom: '10px' }, text: 'Elige cómo empezar: dibuja un objeto desde cero, reutiliza uno de «Mis objetos» o parte de un sprite predefinido. Después podrás editar sus 4 animaciones.' }));
+
+    const startRow = el('div', { class: 'btn-row' });
+    startRow.appendChild(smallBtn('▢ Crear desde cero', () => {
+      addObjectFromPreset('slime', true);
+      MI.modal.close();
+    }, 'btn-primary'));
+    body.appendChild(startRow);
+
+    const userObjs = MI.store.objects();
+    section(body, 'Mis objetos' + (userObjs.length ? ' · ' + userObjs.length : ''));
+    if (!userObjs.length) {
+      body.appendChild(el('p', { class: 'field-note', text: 'Todavía no has guardado objetos. Crea o personaliza uno y pulsa «Guardar este objeto» en la pestaña Animación.' }));
+    } else {
+      const ugrid = el('div', { class: 'user-object-grid' });
+      userObjs.forEach(u => {
+        const tile = el('div', { class: 'user-object-tile' });
+        const b = el('button', { class: 'sprite-btn', type: 'button', title: 'Añadir «' + u.name + '»' });
+        const c = el('canvas', { width: 32, height: 32, style: { width: '44px', height: '44px' } });
+        MI.sprites.thumb(c, (u.animations[0] && u.animations[0].frames[0]) || MI.sprites.empty());
+        b.appendChild(c);
+        b.appendChild(el('span', { style: { display: 'block', fontSize: '8px', fontWeight: '800', marginTop: '2px' }, text: u.name }));
+        b.addEventListener('click', () => {
+          addObjectFromTemplate(u);
+          MI.modal.close();
+        });
+        const del = el('button', {
+          class: 'user-object-del', type: 'button', text: '✕', title: 'Quitar de Mis objetos',
+          onclick: () => MI.modal.confirm('Eliminar objeto', '¿Quitar «' + u.name + '» de Mis objetos? Los objetos ya colocados en microjuegos no cambian.', () => {
+            MI.store.removeObject(u.id);
+            MI.toast('Objeto eliminado de Mis objetos', 'ok');
+            openAddObject();
+          }, 'Eliminar', true)
+        });
+        tile.appendChild(b);
+        tile.appendChild(del);
+        ugrid.appendChild(tile);
+      });
+      body.appendChild(ugrid);
+    }
+
+    section(body, 'Sprites predefinidos');
     const grid = el('div', { class: 'sprite-lib', style: { gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' } });
     MI.sprites.keys().forEach(key => {
-      const b = el('button', { type: 'button', title: MI.sprites.DISPLAY_NAMES[key] || key, style: { padding: '4px' } });
+      const b = el('button', { class: 'sprite-btn', type: 'button', title: MI.sprites.DISPLAY_NAMES[key] || key, style: { padding: '4px' } });
       const c = el('canvas', { width: 32, height: 32, style: { width: '44px', height: '44px' } });
       MI.sprites.thumb(c, MI.sprites.preset(key));
       b.appendChild(c);
@@ -1906,12 +2002,7 @@
       grid.appendChild(b);
     });
     body.appendChild(grid);
-    body.appendChild(el('div', { style: { marginTop: '12px' } }, [
-      smallBtn('▢ Lienzo vacío (dibujar desde cero)', () => {
-        addObjectFromPreset('slime', true);
-        MI.modal.close();
-      }, 'btn-paper')
-    ]));
+
     MI.modal.open({
       title: 'Añadir objeto', wide: true, body,
       footer: [{ label: 'Cancelar', className: 'btn-paper' }]
@@ -1919,27 +2010,76 @@
   }
   E.openAddObject = openAddObject;
 
-  function addObjectFromPreset(key, empty) {
-    const baseName = empty ? 'Objeto' : (MI.sprites.DISPLAY_NAMES[key] || 'Objeto');
-    let name = baseName, n = 2;
-    while (state.game.objects.some(o => o.name === name)) { name = baseName + ' ' + n; n++; }
+  function uniqueObjectName(baseName) {
+    let name = baseName || 'Objeto', n = 2;
+    while (state.game.objects.some(o => o.name === name)) { name = (baseName || 'Objeto') + ' ' + n; n++; }
+    return name;
+  }
+
+  function placeNewObject(obj) {
     const offset = (state.game.objects.length % 4) * 32;
-    const obj = MI.sprites.makeObject(name, key, {
-      x: U.clamp((MI.W - 96) / 2 + offset, 16, MI.W - 112),
-      y: U.clamp((MI.H - 96) / 2 + offset, 16, MI.H - 112),
-      w: 96, h: 96
-    });
-    if (empty) obj.anims = [MI.sprites.empty(), MI.sprites.empty(), MI.sprites.empty(), MI.sprites.empty()];
+    obj.x = U.clamp((MI.W - obj.w) / 2 + offset, 16, MI.W - obj.w - 16);
+    obj.y = U.clamp((MI.H - obj.h) / 2 + offset, 16, MI.H - obj.h - 16);
     state.game.objects.push(obj);
     state.selectedObjectId = obj.id;
     state.selectedZoneId = null;
+    state.animIndex = 0;
     state.animFrame = 0;
     state.tab = 'object';
     MI.$$('#inspector-tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'object'));
     commit(); renderAll();
     MI.audio.sfx('power');
-    MI.toast('Objeto «' + name + '» añadido', 'ok');
+    MI.toast('Objeto «' + obj.name + '» añadido', 'ok');
+    return obj;
   }
+
+  function addObjectFromPreset(key, empty) {
+    const obj = MI.sprites.makeObject(uniqueObjectName(empty ? 'Objeto' : (MI.sprites.DISPLAY_NAMES[key] || 'Objeto')), key, {
+      w: 96, h: 96
+    });
+    if (empty) {
+      obj.animations.forEach(a => {
+        a.frames = [MI.sprites.empty(), MI.sprites.empty(), MI.sprites.empty(), MI.sprites.empty()];
+      });
+      MI.syncObjectAliases(obj);
+    }
+    placeNewObject(obj);
+    if (empty) openPixelEditor(obj.id, 0, 0);
+    return obj;
+  }
+
+  function addObjectFromTemplate(template) {
+    if (!template) return null;
+    const obj = MI.sprites.makeObject(uniqueObjectName(template.name || 'Mi objeto'), 'slime', {
+      w: 96, h: 96,
+      animations: U.deepClone(template.animations)
+    });
+    placeNewObject(obj);
+    return obj;
+  }
+
+  function openSaveObjectModal(obj) {
+    if (!obj) return;
+    const nameInput = el('input', { class: 'input', type: 'text', value: obj.name, maxlength: '24' });
+    const body = el('div');
+    addField(body, 'Nombre en Mis objetos', nameInput, 'Se guardan las 4 animaciones con sus nombres, celdas y velocidades.');
+    body.appendChild(el('p', { class: 'field-note', text: 'Se guarda en este navegador. Podrás usarlo al añadir objetos en cualquier microjuego.' }));
+    MI.modal.open({
+      title: 'Guardar objeto', narrow: true, body,
+      footer: [
+        { label: 'Cancelar', className: 'btn-paper' },
+        {
+          label: 'Guardar ✓', className: 'btn-lime',
+          onClick: () => {
+            const saved = MI.store.saveObject(obj, nameInput.value);
+            MI.toast('«' + saved.name + '» guardado en Mis objetos', 'ok');
+            MI.audio.sfx('power');
+          }
+        }
+      ]
+    });
+  }
+  E.openSaveObjectModal = openSaveObjectModal;
 
   function openZoneEditor(zoneId) {
     const z = zoneById(zoneId);
@@ -2175,7 +2315,7 @@
       <div class="help-grid">
         <div class="help-card">
           <h3>1 · Coloca objetos</h3>
-          <p>Pulsa <strong>＋</strong> en el panel de objetos y elige un sprite. Arrástralo por el escenario. Puedes hacerlo aparecer en un punto fijo o en una zona aleatoria que tú dibujes.</p>
+          <p>Pulsa <strong>＋</strong> en el panel de objetos y elige un sprite predefinido, empieza con un lienzo vacío o usa uno guardado en <strong>Mis objetos</strong>. Arrástralo por el escenario. Puedes hacerlo aparecer en un punto fijo o en una zona aleatoria que tú dibujes.</p>
         </div>
         <div class="help-card">
           <h3>2 · Dibuja zonas</h3>
@@ -2194,7 +2334,7 @@
       <div class="help-grid">
         <div class="help-card trigger"><h3>Tocar</h3><p>Este objeto o cualquier punto del escenario. Ideal para interacción directa con el ratón o el dedo.</p></div>
         <div class="help-card trigger"><h3>Contacto</h3><p>Tocar (bordes) u solaparse (superposición) con otro objeto o con una zona.</p></div>
-        <div class="help-card trigger"><h3>Animación</h3><p>Cuando el objeto muestra una celda concreta o cuando completa un ciclo de sus 4 celdas.</p></div>
+        <div class="help-card trigger"><h3>Animación</h3><p>Cuando el objeto muestra una animación y celda concretas o cuando completa un ciclo de sus 4 celdas.</p></div>
         <div class="help-card trigger"><h3>Interruptor</h3><p>Cuando un objeto pasa a ON/OFF o mientras está ON/OFF. Todos empiezan en OFF.</p></div>
         <div class="help-card trigger"><h3>Tiempo</h3><p>En un punto exacto del tiempo total o durante un intervalo.</p></div>
         <div class="help-card trigger"><h3>Victoria / derrota</h3><p>En el instante de ganar, después de ganar, antes de ganar, o lo mismo con la derrota.</p></div>
@@ -2203,7 +2343,7 @@
       <h3 style="font-family:var(--font-display);font-size:13px;margin:16px 0 7px">Acciones</h3>
       <div class="help-grid">
         <div class="help-card action"><h3>Movimiento</h3><p>Línea recta en 8 direcciones, hacia un punto u otro objeto, saltos, deambular (meneo, bola de billar, moscardón, balón), detenerse, cambiar posiciones y acercarse a otro objeto.</p></div>
-        <div class="help-card action"><h3>Estado y efectos</h3><p>Derrota, sonido, interruptor ON/OFF, cambiar o detener animación, destello, confeti, temblor y congelar.</p></div>
+        <div class="help-card action"><h3>Estado y efectos</h3><p>Derrota, sonido, interruptor ON/OFF, cambiar a una animación concreta o detenerla, destello, confeti, temblor y congelar.</p></div>
         <div class="help-card action"><h3>Orden de las acciones</h3><p>Se ejecutan de arriba abajo. Arrastra el asa <strong>⋮⋮</strong> o usa <strong>▲ ▼</strong> para cambiar el orden; el número azul indica cuál va primero.</p></div>
       </div>
       <p class="field-note" style="margin-top:14px">Consejo: si una acción necesita otro objeto o una zona y aún no existe, el editor te avisa o crea una zona estándar. Puedes repetir una regla activando «Repetir».</p>
@@ -2514,7 +2654,7 @@
       case 'tap': return { type: 'tap', where: subject === 'stage' ? 'stage' : 'self' };
       case 'touch': return { type: 'touch', mode: other ? 'object' : 'zone', objectId: other, zoneId };
       case 'overlap': return { type: 'overlap', mode: other ? 'object' : 'zone', objectId: other, zoneId };
-      case 'anim': return { type: 'anim', mode: 'specific', frame: 0 };
+      case 'anim': return { type: 'anim', mode: 'specific', animation: 0, frame: 0 };
       case 'time': return { type: 'time', mode: 'point', at: Math.round((state.game.duration || 4000) / 2) };
       case 'switch': return { type: 'switch', objectId: 'self', mode: 'turnOn' };
       case 'result': return { type: 'result', mode: 'win' };
@@ -2528,23 +2668,23 @@
     const zoneId = state.game.zones[0] ? state.game.zones[0].id : null;
     const base = { type, target: 'self' };
     switch (type) {
-      case 'moveDir': return Object.assign(base, { dir: 0, speed: 240 });
-      case 'moveRandom': return Object.assign(base, { speed: 240 });
-      case 'moveTo': return Object.assign(base, { x: MI.W / 2, y: MI.H / 2, speed: 240 });
-      case 'moveFrom': return Object.assign(base, { fromMode: 'point', x: MI.W / 2, y: 40, fromObjectId: other, speed: 240 });
+      case 'moveDir': return Object.assign(base, { dir: 0, speedLevel: 3, speed: MI.moveSpeed(3) });
+      case 'moveRandom': return Object.assign(base, { speedLevel: 3, speed: MI.moveSpeed(3) });
+      case 'moveTo': return Object.assign(base, { x: MI.W / 2, y: MI.H / 2, speedLevel: 3, speed: MI.moveSpeed(3) });
+      case 'moveFrom': return Object.assign(base, { fromMode: 'point', x: MI.W / 2, y: 40, fromObjectId: other, speedLevel: 3, speed: MI.moveSpeed(3) });
       case 'jumpPoint': return Object.assign(base, { x: MI.W / 2, y: MI.H / 2 });
       case 'jumpZone': return Object.assign(base, { zoneId: zoneId || ensureZoneSilent(), avoid: false });
       case 'jumpObject':
         if (!other) return null;
         return Object.assign(base, { objectId: other });
-      case 'wander': return Object.assign(base, { mode: 'wobble', zoneId: zoneId || ensureZoneSilent(), avoid: false, speed: 200 });
+      case 'wander': return Object.assign(base, { mode: 'wobble', zoneId: zoneId || ensureZoneSilent(), avoid: false, speedLevel: 2, speed: MI.moveSpeed(2) });
       case 'stop': return base;
       case 'swap':
         if (!other) return null;
         return Object.assign(base, { objectId: other });
       case 'approach':
         if (!other) return null;
-        return Object.assign(base, { objectId: other, distance: 0, speed: 240 });
+        return Object.assign(base, { objectId: other, distance: 0, speedLevel: 3, speed: MI.moveSpeed(3) });
       case 'lose': return { type: 'lose' };
       case 'sound': return { type: 'sound', soundId: 'blip' };
       case 'switch': return Object.assign(base, { objectId: 'self', value: true });
@@ -2553,7 +2693,7 @@
         type: 'text', text: '¡Bien!', x: Math.round(MI.W / 2), y: Math.round(MI.H / 2),
         size: 56, font: 'display', align: 'center', color: '#ffd23f', duration: 1600
       };
-      case 'anim': return Object.assign(base, { mode: 'set', frame: 0 });
+      case 'anim': return Object.assign(base, { mode: 'set', animation: 0, frame: 0 });
       case 'effect': return { type: 'effect', effect: 'flash', duration: 500 };
       default: return { type: 'sound', soundId: 'blip' };
     }
@@ -2658,9 +2798,15 @@
         t.mode = v; commit(); renderAll();
       }));
       if (t.mode === 'specific') {
-        parent.appendChild(mkSelect([0, 1, 2, 3].map(i => ({ value: i, label: 'Celda ' + (i + 1) })), t.frame, (v) => {
+        const subject = objById(rule.subject);
+        parent.appendChild(mkSelect(animationOptions(subject), t.animation != null ? t.animation : 0, (v) => {
+          t.animation = Number(v);
+          t.frame = 0;
+          commit(); renderAll();
+        }, '', 'Animación del objeto'));
+        parent.appendChild(mkSelect(cellOptions(), t.frame, (v) => {
           t.frame = Number(v); commit(); renderAll();
-        }));
+        }, '', 'Celda de la animación'));
       }
 
     } else if (t.type === 'time') {
@@ -2941,6 +3087,19 @@
     );
   }
 
+  // Opciones de animación para selectores de activadores y acciones.
+  function animationOptions(obj) {
+    const animations = obj ? MI.objectAnimations(obj) : null;
+    return [0, 1, 2, 3].map(i => ({
+      value: i,
+      label: animations ? ((i + 1) + '. ' + animations[i].name) : ('Animación ' + (i + 1))
+    }));
+  }
+
+  function cellOptions() {
+    return [0, 1, 2, 3].map(i => ({ value: i, label: 'Celda ' + (i + 1) }));
+  }
+
   function actorWarning(rule, action, parent) {
     if (action.target === 'self' && rule.subject === 'stage') {
       parent.appendChild(el('p', { class: 'rule-warn', style: { padding: 0 }, text: '⚠ Elige un objeto para esta acción.' }));
@@ -2978,16 +3137,14 @@
         parent.appendChild(dirWrap);
         parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '5px' } }, [
           el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Velocidad' }),
-          mkNum(action.speed, (v) => { action.speed = U.clamp(v, 16, 1600); commit(); renderAll(); }, { cls: 'num', min: 16, max: 1600, fallback: 240 }),
-          el('span', { class: 'unit', text: 'px/s' })
+          speedSelect(action, 3)
         ]));
         break;
       }
       case 'moveRandom': {
         parent.appendChild(el('div', { class: 'rule-inline' }, [
           el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Velocidad' }),
-          mkNum(action.speed, (v) => { action.speed = U.clamp(v, 16, 1600); commit(); renderAll(); }, { cls: 'num', min: 16, max: 1600, fallback: 240 }),
-          el('span', { class: 'unit', text: 'px/s' })
+          speedSelect(action, 3)
         ]));
         parent.appendChild(el('p', { class: 'field-note', text: 'Dirección al azar entre las 8 posibles.' }));
         break;
@@ -2997,8 +3154,7 @@
         parent.appendChild(pointControl(rule, action));
         parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '5px' } }, [
           el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Velocidad' }),
-          mkNum(action.speed, (v) => { action.speed = U.clamp(v, 16, 1600); commit(); renderAll(); }, { cls: 'num', min: 16, max: 1600, fallback: 240 }),
-          el('span', { class: 'unit', text: 'px/s' })
+          speedSelect(action, 3)
         ]));
         break;
       }
@@ -3019,8 +3175,7 @@
         }
         parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '5px' } }, [
           el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Velocidad' }),
-          mkNum(action.speed, (v) => { action.speed = U.clamp(v, 16, 1600); commit(); renderAll(); }, { cls: 'num', min: 16, max: 1600, fallback: 240 }),
-          el('span', { class: 'unit', text: 'px/s' })
+          speedSelect(action, 3)
         ]));
         parent.appendChild(el('p', { class: 'field-note', text: 'El objeto aparece en ese origen y avanza en línea recta hacia su posición actual.' }));
         break;
@@ -3057,8 +3212,7 @@
         parent.appendChild(zonePicker(action.zoneId, (id) => { action.zoneId = id; }));
         parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '5px' } }, [
           el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Velocidad' }),
-          mkNum(action.speed, (v) => { action.speed = U.clamp(v, 24, 1200); commit(); renderAll(); }, { cls: 'num', min: 24, max: 1200, fallback: 200 }),
-          el('span', { class: 'unit', text: 'px/s' })
+          speedSelect(action, 2)
         ]));
         parent.appendChild(checkRow('Intentar no solapar', action.avoid, (v) => {
           action.avoid = v; commit(); renderAll();
@@ -3080,9 +3234,11 @@
         r.appendChild(el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Distancia' }));
         r.appendChild(mkNum(action.distance, (v) => { action.distance = U.clamp(v, 0, 1200); commit(); renderAll(); }, { cls: 'num', min: 0, max: 1200 }));
         r.appendChild(el('span', { class: 'unit', text: 'px' }));
-        r.appendChild(mkNum(action.speed, (v) => { action.speed = U.clamp(v, 16, 1200); commit(); renderAll(); }, { cls: 'num', min: 16, max: 1200, fallback: 240 }));
-        r.appendChild(el('span', { class: 'unit', text: 'px/s' }));
         parent.appendChild(r);
+        parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '5px' } }, [
+          el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Velocidad' }),
+          speedSelect(action, 3)
+        ]));
         break;
       }
       case 'lose':
@@ -3170,9 +3326,15 @@
           action.mode = v; commit(); renderAll();
         }));
         if (action.mode !== 'stop') {
-          parent.appendChild(mkSelect([0, 1, 2, 3].map(i => ({ value: i, label: 'Celda ' + (i + 1) })), action.frame, (v) => {
+          const targetObj = action.target === 'self' ? objById(rule.subject) : objById(action.target);
+          parent.appendChild(mkSelect(animationOptions(targetObj), action.animation != null ? action.animation : 0, (v) => {
+            action.animation = Number(v);
+            action.frame = 0;
+            commit(); renderAll();
+          }, '', 'Animación del objeto'));
+          parent.appendChild(mkSelect(cellOptions(), action.frame, (v) => {
             action.frame = Number(v); commit(); renderAll();
-          }));
+          }, '', 'Celda de la animación'));
         }
         break;
       }

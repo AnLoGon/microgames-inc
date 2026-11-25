@@ -45,12 +45,11 @@
   MI.animFps = function (level) { return MI.animSpeed(level).fps; };
   MI.animSpeedLevel = function (fps) {
     const n = Number(fps) || 6;
-    let best = 3, dist = Infinity;
-    MI.ANIM_SPEEDS.forEach(s => {
-      const d = Math.abs(s.fps - n);
-      if (d < dist) { dist = d; best = s.value; }
-    });
-    return best;
+    if (n <= 3) return 1;
+    if (n <= 5) return 2;
+    if (n <= 8) return 3;
+    if (n <= 11) return 4;
+    return 5;
   };
 
   MI.moveSpeed = function (level) {

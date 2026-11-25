@@ -732,7 +732,8 @@
       ctx.imageSmoothingEnabled = false;
       for (const o of this.objects) {
         if (!o.visible) continue;
-        const anim = MI.objectAnimations(o.def)[o.anim] || MI.objectAnimations(o.def)[0];
+        const animations = MI.objectAnimations(o.def);
+        const anim = animations[o.anim] || animations[0];
         const data = (anim && anim.frames[o.frame]) || (anim && anim.frames[0]);
         if (o.flashSwitch > 0) o.flashSwitch = Math.max(0, o.flashSwitch - 16);
         MI.sprites.draw(ctx, data, o.x, o.y, o.w, o.h);
