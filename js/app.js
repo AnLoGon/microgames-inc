@@ -457,7 +457,7 @@
         </div>
         <div class="help-card">
           <h3>🧪 Probar</h3>
-          <p>Desde el editor elige la <strong>velocidad</strong> (0,5× a 3×) y pulsa <strong>▶ Probar</strong>. Durante la prueba verás el estado <strong>ON/OFF</strong> de cada objeto y podrás cambiar la velocidad en vivo. El borrador no se modifica.</p>
+          <p>Desde el editor elige la <strong>velocidad</strong> (0,5× a 3×) y si quieres ver el panel de <strong>interruptores</strong>, y pulsa <strong>▶ Probar</strong>. Durante la prueba puedes cambiar la velocidad en vivo. El borrador no se modifica.</p>
         </div>
         <div class="help-card">
           <h3>🔤 Textos</h3>

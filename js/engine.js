@@ -72,6 +72,8 @@
     /* ------------------------------ entrada ------------------------------ */
     pointerDown(x, y) {
       if (this.ended) return;
+      // El efecto «Congelar» bloquea cualquier toque hasta que termine.
+      if (this.effects.freeze > 0) return;
       let hit = null;
       for (let i = this.objects.length - 1; i >= 0; i--) {
         const o = this.objects[i];
@@ -90,8 +92,9 @@
       const real = Math.min(realDt || 16, 80);
       const dt = real * this.speed;
       const frozen = this.effects.freeze > 0;
-      // El efecto «congelar» detiene objetos, animaciones y reloj.
-      if (!frozen) this.t += dt;
+      // El efecto «congelar» detiene objetos y animaciones, pero el reloj sigue
+      // corriendo: el tiempo del microjuego no se pausa.
+      this.t += dt;
       this.winThisFrame = false;
       this.loseThisFrame = false;
 
@@ -474,7 +477,8 @@
         }
         case 'moveRandom': {
           if (!actor) break;
-          const a = Math.random() * Math.PI * 2;
+          // Solo 8 direcciones: N, NE, E, SE, S, SO, O y NO.
+          const a = U.randInt(0, 7) * Math.PI / 4;
           actor.motion = { type: 'straight' };
           actor.vx = Math.cos(a) * action.speed;
           actor.vy = Math.sin(a) * action.speed;
@@ -653,8 +657,10 @@
           this.effects.shakeMax = d;
           break;
         case 'freeze':
-          this.effects.freeze = d;
-          this.effects.freezeMax = d;
+          // Congelar permanente: se mantiene hasta que termine el tiempo del microjuego.
+          this.effects.freeze = Infinity;
+          this.effects.freezeMax = Infinity;
+          MI.audio.sfx('lose'); // Suena «Derrota» automáticamente al activar
           break;
         case 'confetti': {
           const colors = ['#ffd23f', '#ff4d5e', '#4fd1ff', '#8bd450', '#ff86c8', '#a45cff', '#ff8a3d'];
@@ -674,7 +680,6 @@
     updateEffects(dt) {
       if (this.effects.flash > 0) this.effects.flash = Math.max(0, this.effects.flash - dt);
       if (this.effects.shake > 0) this.effects.shake = Math.max(0, this.effects.shake - dt);
-      if (this.effects.freeze > 0) this.effects.freeze = Math.max(0, this.effects.freeze - dt);
       if (this.effects.winFlash > 0) this.effects.winFlash = Math.max(0, this.effects.winFlash - dt);
       if (this.effects.loseFlash > 0) this.effects.loseFlash = Math.max(0, this.effects.loseFlash - dt);
       const sec = dt / 1000;
@@ -767,14 +772,22 @@
       }
       ctx.restore();
 
+      // Congelar: invierte los colores de todo lo dibujado (fondo, textos y
+      // objetos) usando la composición «diferencia» con blanco.
+      if (fx.freeze > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'difference';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, NS, NM);
+        ctx.restore();
+      }
+
       if (fx.flash > 0) {
         ctx.fillStyle = 'rgba(255,255,255,' + (0.75 * fx.flash / Math.max(1, fx.flashMax)) + ')';
         ctx.fillRect(0, 0, NS, NM);
       }
       if (fx.freeze > 0) {
-        ctx.fillStyle = 'rgba(79,209,255,0.18)';
-        ctx.fillRect(0, 0, NS, NM);
-        ctx.strokeStyle = 'rgba(200,245,255,0.6)';
+        ctx.strokeStyle = 'rgba(200,245,255,0.85)';
         ctx.lineWidth = 6;
         ctx.strokeRect(6, 6, NS - 12, NM - 12);
       }

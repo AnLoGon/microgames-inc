@@ -43,6 +43,7 @@
     frameClipboard: null,
     ruleClipboard: null,
     previewSpeed: 1,
+    previewSwitches: true,
     animPreview: null,
     history: [],
     hIndex: -1,
@@ -220,6 +221,8 @@
     if (snap) snap.checked = state.snap;
     const testSpeed = $('#test-speed');
     if (testSpeed) testSpeed.value = String(state.previewSpeed);
+    const testSwitches = $('#test-switches');
+    if (testSwitches) testSwitches.checked = state.previewSwitches;
     renderAll();
     updateUndoButtons();
 
@@ -939,6 +942,13 @@
         const v = Number(speedSel.value);
         state.previewSpeed = [0.5, 1, 2, 3].indexOf(v) >= 0 ? v : 1;
         MI.toast('Velocidad de prueba: ' + String(state.previewSpeed).replace('.', ',') + '×');
+      });
+    }
+    const switchesBox = $('#test-switches');
+    if (switchesBox) {
+      switchesBox.addEventListener('change', () => {
+        state.previewSwitches = switchesBox.checked;
+        MI.toast(state.previewSwitches ? 'Interruptores visibles en la prueba' : 'Interruptores ocultos en la prueba');
       });
     }
     $('#btn-export').addEventListener('click', exportGame);
@@ -2280,7 +2290,7 @@
       mode: 'preview',
       from: 'editor',
       speed: state.previewSpeed,
-      showSwitches: true
+      showSwitches: state.previewSwitches
     });
   }
   E.test = testGame;
@@ -2343,7 +2353,7 @@
       <h3 style="font-family:var(--font-display);font-size:13px;margin:16px 0 7px">Acciones</h3>
       <div class="help-grid">
         <div class="help-card action"><h3>Movimiento</h3><p>Línea recta en 8 direcciones, hacia un punto u otro objeto, saltos, deambular (meneo, bola de billar, moscardón, balón), detenerse, cambiar posiciones y acercarse a otro objeto.</p></div>
-        <div class="help-card action"><h3>Estado y efectos</h3><p>Derrota, sonido, interruptor ON/OFF, cambiar a una animación concreta o detenerla, destello, confeti, temblor y congelar.</p></div>
+        <div class="help-card action"><h3>Estado y efectos</h3><p>Derrota, sonido, interruptor ON/OFF, cambiar a una animación concreta o detenerla, destello, confeti, temblor y congelar (invierte colores y bloquea los toques).</p></div>
         <div class="help-card action"><h3>Orden de las acciones</h3><p>Se ejecutan de arriba abajo. Arrastra el asa <strong>⋮⋮</strong> o usa <strong>▲ ▼</strong> para cambiar el orden; el número azul indica cuál va primero.</p></div>
       </div>
       <p class="field-note" style="margin-top:14px">Consejo: si una acción necesita otro objeto o una zona y aún no existe, el editor te avisa o crea una zona estándar. Puedes repetir una regla activando «Repetir».</p>
@@ -3343,16 +3353,19 @@
           { value: 'flash', label: 'Destello (pantalla blanca)' },
           { value: 'confetti', label: 'Confeti' },
           { value: 'shake', label: 'Temblor' },
-          { value: 'freeze', label: 'Congelar objetos y reloj' }
+          { value: 'freeze', label: 'Congelar (invierte colores y bloquea toques)' }
         ], action.effect, (v) => {
           action.effect = v; commit(); renderAll();
         }));
-        if (action.effect !== 'confetti') {
+        if (action.effect !== 'confetti' && action.effect !== 'freeze') {
           parent.appendChild(el('div', { class: 'rule-inline', style: { marginTop: '4px' } }, [
             el('span', { class: 'micro-label', style: { margin: 0 }, text: 'Duración' }),
             mkNum(action.duration, (v) => { action.duration = U.clamp(v, 100, 5000); commit(); renderAll(); }, { cls: 'num', min: 100, max: 5000, fallback: 500 }),
             el('span', { class: 'unit', text: 'ms' })
           ]));
+        }
+        if (action.effect === 'freeze') {
+          parent.appendChild(el('p', { class: 'field-note', text: 'Congelar permanente: no se puede tocar el escenario y los colores se inverten hasta que termine el tiempo del microjuego. Suena «Derrota» al activarse.' }));
         }
         break;
       }

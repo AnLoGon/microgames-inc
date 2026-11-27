@@ -1,4 +1,4 @@
-# Microgames Inc. 0.3
+# Microgames Inc. 0.3.2
 
 Homenaje a **WarioWare: Do It Yourself** (Nintendo DS): un editor visual de microjuegos de 4 segundos, 8 segundos o infinitos, más una colección de ejemplos jugables. Todo funciona en el navegador, sin servidor y sin instalar nada.
 
@@ -8,14 +8,7 @@ El escenario interno es de **1280×720 píxeles** y se muestra siempre con propo
 
 ## Cómo ejecutarlo
 
-Abre `index.html` con doble clic (funciona desde `file://`) o sirve la carpeta con cualquier servidor estático:
-
-```bash
-python -m http.server 8765 --bind 127.0.0.1
-```
-
-y visita <http://127.0.0.1:8765/index.html>.
-
+Abre `index.html` con doble clic (funciona desde `file://`).
 No hay backend, ni build, ni dependencias: HTML, CSS y JavaScript clásicos.
 
 ## Qué incluye
@@ -43,12 +36,12 @@ No hay backend, ni build, ni dependencias: HTML, CSS y JavaScript clásicos.
   - Victoria / derrota (ganar, después de ganar, antes de ganar, perder, después de perder, antes de perder).
   - **Varios activadores por regla** combinados con **Y** (se cumplen todos) u **O** (basta con uno), hasta 6 activadores extra.
 - **Acciones**
-  - Movimiento en línea recta (dirección fija o aleatoria, hacia un punto, desde otro sitio u objeto), con velocidad de **1 a 5**.
+  - Movimiento en línea recta (dirección fija o aleatoria, hacia un punto, desde otro sitio u objeto), con velocidad de **1 a 5**. La dirección aleatoria elige una de las **8 direcciones** de la cuadrícula.
   - Salto a punto/zona (cualquier punto o intentando no solaparse) o a un objeto.
   - Vagar (meneo, billar, volar, botar), detenerse, intercambiar posiciones, acercarse a un objeto. Deambular y acercarse también usan velocidad de **1 a 5**.
   - Derrota, sonido, interruptor ON/OFF, cambiar a una animación y celda concretas o detener animación.
   - **Objeto invisible** (ocultar o volver a mostrar) y **Añadir texto** temporal con fuente, tamaño, color, alineación, posición y duración.
-  - Efectos: destello, confeti, temblor y congelar objetos y reloj.
+  - Efectos: destello, confeti, temblor y congelar. Congelar invierte los colores del fondo y los objetos, bloquea los toques y deja el reloj en marcha.
   - **Orden visible y editable**: cada acción lleva un número y se puede arrastrar con el asa **⋮⋮** o mover con **▲ / ▼**.
 - **Lógica por objeto**
   - La pestaña **Lógica** muestra solo las reglas del objeto seleccionado; al cambiar de objeto se mantiene la pestaña abierta.
@@ -66,6 +59,7 @@ No hay backend, ni build, ni dependencias: HTML, CSS y JavaScript clásicos.
   - Resultado y regreso al editor tras una prueba.
 - **Prueba desde el editor**
   - Selector de velocidad **0,5× / 1× / 2× / 3×** antes de probar; también se puede cambiar en vivo desde el panel de prueba.
+  - Puedes mostrar u ocultar el panel con el estado **ON/OFF** de los interruptores de los objetos antes de probar.
   - Panel **Interruptores** con el estado ON/OFF de cada objeto, la marca **invisible** y el aviso de pausa.
   - La prueba no modifica el borrador.
 - **Maratón**
@@ -79,6 +73,14 @@ No hay backend, ni build, ni dependencias: HTML, CSS y JavaScript clásicos.
   - Importar y exportar microjuegos como archivo `.json`.
   - 15 efectos de sonido 8-bit (incluido el de la pista de entrada) y 7 pistas chiptune seleccionables.
   - Guardado automático en `localStorage`, borrador de sesión y copias de los ejemplos.
+
+## Novedades de 0.3.2
+
+- **Velocidades de movimiento mejoradas**: 60/120/240/480/720 px/s en los niveles 1 a 5.
+- **Congelar permanente**: El efecto se mantiene hasta que termina el tiempo del microjuego, bloquea los toques y mantiene el reloj en marcha.
+- **Sonido de derrota automático**: Al activar el efecto Congelar se reproduce automáticamente el sonido "Derrota".
+- **Interfaz mejorada**: Texto "Ver interruptores" al lado del checkbox para localizarlo fácilmente.
+- **Version visible actualizada**: El título y versión visible del producto ahora muestra 0.3.2.
 
 ## Controles
 
@@ -111,7 +113,6 @@ js/app.js         Navegación, galería, borradores, ayuda y ajustes
 - «Mis objetos» también se guarda en `localStorage`; si borras los datos del navegador se pierden esos objetos guardados (los ya colocados en un microjuego se conservan con él).
 - Los textos fijos del escenario se dibujan por debajo de los objetos; los textos de la acción «Añadir texto» aparecen por encima y pueden tener duración o quedarse hasta el final.
 - Un objeto invisible conserva su interruptor ON/OFF y puede volver a mostrarse con la misma acción «Objeto invisible».
-- El estado de los interruptores solo existe durante la partida: al empezar, todos están apagados.
 - Los ejemplos siempre están disponibles; al editarlos se abre una copia sin guardar.
 - Los microjuegos antiguos creados en 320×240 se adaptan automáticamente a 1280×720 al cargarlos. Los creados con la versión 0.2 convierten sus 4 celdas y su velocidad en fps a la primera de las 4 animaciones nuevas.
 - Los objetivos antiguos de tocar o alcanzar siguen siendo jugables; al editar una copia, el editor los convierte al sistema de interruptores cuando puede deducir la condición.

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#141c38">
-<title>Microgames Inc. 0.3 — Editor de microjuegos</title>
-<link rel="stylesheet" href="css/styles.css?v=7">
+<title>Microgames Inc. 0.3.2 — Editor de microjuegos</title>
+<link rel="stylesheet" href="css/styles.css?v=9">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23ffd23f'/><rect x='5' y='7' width='22' height='18' rx='4' fill='%231b2340'/><rect x='9' y='11' width='14' height='10' fill='%234fd1ff'/></svg>">
 </head>
 <body>
@@ -25,7 +25,7 @@
               <circle cx="18" cy="12.2" r="1.4" fill="#ffd23f"/>
             </svg>
           </span>
-          <span class="brand-name">MICROGAMES<span class="brand-inc">INC.</span><span class="brand-version">0.3</span></span>
+          <span class="brand-name">MICROGAMES<span class="brand-inc">INC.</span><span class="brand-version">0.3.2</span></span>
         </div>
         <div class="menu-top-actions">
           <button class="icon-btn" id="btn-mute" title="Activar / silenciar sonido" aria-label="Sonido">🔊</button>
@@ -93,7 +93,7 @@
       </section>
 
       <footer class="menu-footer">
-        <span>MICROGAMES INC. 0.3 · Homenaje a WarioWare: Do It Yourself</span>
+        <span>MICROGAMES INC. 0.3.2 · Homenaje a WarioWare: Do It Yourself</span>
       </footer>
     </div>
   </section>
@@ -146,6 +146,7 @@
           <button class="btn btn-paper btn-sm" id="btn-import-editor" title="Importar archivo">📥</button>
           <button class="btn btn-paper btn-sm" id="btn-export" title="Exportar archivo">📤</button>
           <button class="btn btn-paper btn-sm" id="btn-save">💾 Guardar</button>
+          <label class="switch-inline test-switches" title="Mostrar el estado de los interruptores durante la prueba"><input type="checkbox" id="test-switches" checked><span>Ver interruptores</span></label>
           <select class="select test-speed" id="test-speed" title="Velocidad del tiempo al probar">
             <option value="0.5">0,5×</option>
             <option value="1" selected>1×</option>
@@ -264,14 +265,14 @@
 <div id="modal-root"></div>
 <div id="toast-root" class="toast-root"></div>
 
-<script src="js/core.js?v=7"></script>
-<script src="js/sprites.js?v=7"></script>
-<script src="js/audio.js?v=7"></script>
-<script src="js/engine.js?v=7"></script>
-<script src="js/examples.js?v=7"></script>
-<script src="js/pixel.js?v=7"></script>
-<script src="js/editor.js?v=7"></script>
-<script src="js/player.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
+<script src="js/core.js?v=9"></script>
+<script src="js/sprites.js?v=9"></script>
+<script src="js/audio.js?v=9"></script>
+<script src="js/engine.js?v=9"></script>
+<script src="js/examples.js?v=9"></script>
+<script src="js/pixel.js?v=9"></script>
+<script src="js/editor.js?v=9"></script>
+<script src="js/player.js?v=9"></script>
+<script src="js/app.js?v=9"></script>
 </body>
 </html>

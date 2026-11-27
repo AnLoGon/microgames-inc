@@ -30,11 +30,11 @@
 
   // Velocidad de movimiento: 1 = más lento, 5 = más rápido.
   MI.MOVE_SPEEDS = [
-    { value: 1, label: '1 · Muy lento', px: 40 },
-    { value: 2, label: '2 · Lento', px: 70 },
-    { value: 3, label: '3 · Normal', px: 110 },
-    { value: 4, label: '4 · Rápido', px: 170 },
-    { value: 5, label: '5 · Muy rápido', px: 260 }
+    { value: 1, label: '1 · Muy lento', px: 60 },
+    { value: 2, label: '2 · Lento', px: 120 },
+    { value: 3, label: '3 · Normal', px: 240 },
+    { value: 4, label: '4 · Rápido', px: 480 },
+    { value: 5, label: '5 · Muy rápido', px: 720 }
   ];
 
   MI.animSpeed = function (level) {
@@ -58,16 +58,37 @@
   };
   MI.moveSpeedLevel = function (px) {
     const n = Number(px) || 0;
-    if (n <= 40) return 1;
-    if (n <= 80) return 2;
-    if (n <= 130) return 3;
-    if (n <= 200) return 4;
+    if (n <= 70) return 1;
+    if (n <= 130) return 2;
+    if (n <= 250) return 3;
+    if (n <= 480) return 4;
     return 5;
   };
 
   // Versión visible del producto (independiente de la versión del esquema).
-  MI.APP_VERSION = '0.3';
+  MI.APP_VERSION = '0.3.2';
   MI.CHANGELOG = [
+    {
+      version: '0.3.2',
+      title: 'Congelar permanente y sonido de derrota',
+      items: [
+        'Las velocidades de movimiento se incrementan: 60 / 120 / 240 / 480 / 720 px/s en los niveles 1 a 5.',
+        '«Movimiento · Línea recta (aleatoria)» elige siempre una de las 8 direcciones: arriba, arriba izquierda, izquierda, izquierda abajo, abajo, abajo derecha, derecha y derecha arriba.',
+        'El efecto «Congelar» es permanente: se mantiene hasta que termina el tiempo del microjuego, bloquea los toques e invierte los colores del fondo y los objetos.',
+        'Al realizar la acción «Congelar» suena automáticamente el sonido «Derrota».',
+        'Al probar desde el editor puedes activar o desactivar el panel con el estado de los interruptores de los objetos.'
+      ]
+    },
+    {
+      version: '0.3.1',
+      title: 'Congelar, velocidades más ágiles y pruebas a tu gusto',
+      items: [
+        'Las velocidades de movimiento de 1 a 5 son un poco más rápidas en todos los niveles.',
+        '«Movimiento · Línea recta (aleatoria)» elige siempre una de las 8 direcciones: arriba, arriba izquierda, izquierda, izquierda abajo, abajo, abajo derecha, derecha y derecha arriba.',
+        'El efecto «Congelar» bloquea los toques en el escenario, invierte los colores del fondo y de los objetos, y mantiene el reloj en marcha hasta que termina el efecto.',
+        'Al probar desde el editor puedes activar o desactivar el panel con el estado de los interruptores de los objetos.'
+      ]
+    },
     {
       version: '0.3',
       title: 'Animaciones, velocidades y tus propios objetos',

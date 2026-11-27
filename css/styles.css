@@ -1068,6 +1068,7 @@ code { font-family: var(--font-mono); background: rgba(27,35,64,.08); padding: 1
   letter-spacing: 0;
 }
 .test-speed { width: 68px; padding: 5px 4px; font-size: 11px; flex: 0 0 auto; }
+.test-switches { white-space: nowrap; font-size: 10.5px; }
 .text-list { display: flex; flex-direction: column; gap: 4px; }
 .text-list-item {
   display: flex; align-items: center; gap: 5px; padding: 4px 5px;
